@@ -1,14 +1,18 @@
 <div align="center">
   <img src="assets/flowdevs_icon.png" alt="FlowDevs Logo" width="300" />
+  <br/>
+  <h1>PrimeDictate</h1>
+  <a href="https://github.com/CakeRepository/PrimeDictate/actions/workflows/build.yml">
+    <img src="https://github.com/CakeRepository/PrimeDictate/actions/workflows/build.yml/badge.svg" alt="Build Status">
+  </a>
+  <p><b>A locally hosted, global hotkey dictation utility for fast desktop workflows.</b></p>
+  <p>It captures the default microphone, shows live local transcription in a small overlay, and types the final transcript into the current application after a silence auto-commit or manual stop using SharpHook (no synthetic paste, no clipboard round-trip on the hot path).</p>
+  <br/>
+  <img src="assets/overlay_full.png" alt="Live Dictation Overlay" width="600" />
+  <br/><br/>
+  <img src="assets/workspace.png" alt="Workspace Dashboard" width="600" />
+  <br/>
 </div>
-
-# PrimeDictate
-
-![Live Dictation Overlay](assets/overlay_full.png)
-
-A locally hosted, global hotkey dictation utility for fast desktop workflows. It captures the default microphone, shows live local transcription in a small overlay, and types the final transcript into the current application after a silence auto-commit or manual stop using SharpHook (no synthetic paste, no clipboard round-trip on the hot path).
-
-![Workspace Dashboard](assets/workspace.png)
 
 ## Features
 
@@ -40,6 +44,11 @@ A locally hosted, global hotkey dictation utility for fast desktop workflows. It
 - [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0) (or a compatible SDK that can build `net8.0` projects).
 - **Windows** is the primary target (WASAPI capture path). Other platforms may require a different capture implementation.
 - For CPU Whisper at runtime, the published **Whisper.net** requirements apply (for example, Visual C++ redistributable and instruction-set expectations); see the [Whisper.net readme](https://www.nuget.org/packages/Whisper.net).
+
+---
+
+<details>
+<summary><b>🛠️ Local transcription backends and model files</b></summary>
 
 ## Local transcription backends and model files
 
@@ -115,6 +124,11 @@ Invoke-WebRequest -Uri "https://huggingface.co/ggerganov/whisper.cpp/resolve/mai
 
 Larger models take longer to download and load. The first transcription after launch may still do noticeable disk I/O while Whisper initializes.
 
+</details>
+
+<details>
+<summary><b>📦 Public Windows release (installers)</b></summary>
+
 ## Public Windows release (installers)
 
 This repo targets **64-bit Windows** only. Maintainers build **MSI packages** with the [WiX Toolset](https://wixtoolset.org/) **through NuGet** (`WixToolset.Sdk`). Only the **[.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)** is required—no separate Inno Setup or WiX install.
@@ -163,6 +177,11 @@ PrimeDictate now runs as a **WPF tray app** (no console window in normal use):
 .\scripts\Publish-Windows.ps1
 ```
 
+</details>
+
+<details>
+<summary><b>💻 Build and run</b></summary>
+
 ## Build and run
 
 ```powershell
@@ -181,6 +200,11 @@ The app starts in the tray. On first launch, complete setup, then focus another 
 - Use the overlay as the live feedback surface. The focused editor receives only the final committed transcript.
 - For a built-in mouse cue, enable Windows' "show location of pointer when I press CTRL key" setting. PrimeDictate uses that OS feature when available.
 - Long monologues are heavier than short phrases because Whisper preview reprocesses snapshots and the final pass processes the full recording. A faster or smaller model helps if this becomes limiting.
+
+</details>
+
+<details>
+<summary><b>⚙️ Configuration surface & Architecture</b></summary>
 
 ## Configuration surface
 
@@ -209,6 +233,10 @@ The app starts in the tray. On first launch, complete setup, then focus another 
 ### Why not clipboard + Ctrl+V?
 
 An earlier design put the transcript on the clipboard, simulated **Paste**, then restored the previous clipboard. Many applications handle paste **asynchronously**, so the restore often ran **before** the app read the new clipboard, and users saw the **old** clipboard (for example, a recently copied URL). The current design avoids that class of race by not using the clipboard for injection in the first place.
+
+</details>
+
+---
 
 ## License
 
