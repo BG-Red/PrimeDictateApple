@@ -12,12 +12,22 @@ namespace PrimeDictate;
 internal partial class TranscriptionOverlayWindow : Window
 {
     private const int MaxDisplayedTranscriptChars = 900;
-    private const int WaveformBarCount = 60;
+    private const int WaveformBarCount = 90;
+    private const int ParticleCount = 150;
+    
     private readonly Random random = new Random();
     private readonly System.Windows.Shapes.Rectangle[] leftBars = new System.Windows.Shapes.Rectangle[WaveformBarCount];
     private readonly System.Windows.Shapes.Rectangle[] rightBars = new System.Windows.Shapes.Rectangle[WaveformBarCount];
     private readonly double[] barTargets = new double[WaveformBarCount];
     private readonly double[] barCurrents = new double[WaveformBarCount];
+    
+    private readonly System.Windows.Shapes.Ellipse[] pShapes = new System.Windows.Shapes.Ellipse[ParticleCount];
+    private readonly double[] pX = new double[ParticleCount];
+    private readonly double[] pY = new double[ParticleCount];
+    private readonly double[] pVX = new double[ParticleCount];
+    private readonly double[] pVY = new double[ParticleCount];
+    private readonly double[] pLife = new double[ParticleCount];
+
     private DispatcherTimer timer;
     private DispatcherTimer visualizerTimer;
     private DateTime startTime;
@@ -58,16 +68,17 @@ internal partial class TranscriptionOverlayWindow : Window
 
         for (int i = 0; i < WaveformBarCount; i++)
         {
-            double opacity = 1.0 - ((double)i / WaveformBarCount);
+            // Drop opacity to 0.3 at edges instead of letting it fully disappear
+            double opacity = 1.0 - (((double)i / WaveformBarCount) * 0.7);
             
             var leftBar = new System.Windows.Shapes.Rectangle
             {
-                Width = 3,
+                Width = 2,
                 Height = 2,
-                RadiusX = 1.5,
-                RadiusY = 1.5,
+                RadiusX = 1,
+                RadiusY = 1,
                 Fill = gradientLeft,
-                Margin = new Thickness(0, 0, 4, 0),
+                Margin = new Thickness(0, 0, 2, 0),
                 Opacity = opacity,
                 VerticalAlignment = VerticalAlignment.Center
             };
@@ -76,18 +87,56 @@ internal partial class TranscriptionOverlayWindow : Window
 
             var rightBar = new System.Windows.Shapes.Rectangle
             {
-                Width = 3,
+                Width = 2,
                 Height = 2,
-                RadiusX = 1.5,
-                RadiusY = 1.5,
+                RadiusX = 1,
+                RadiusY = 1,
                 Fill = gradientRight,
-                Margin = new Thickness(0, 0, 4, 0),
+                Margin = new Thickness(0, 0, 2, 0),
                 Opacity = opacity,
                 VerticalAlignment = VerticalAlignment.Center
             };
             this.rightBars[i] = rightBar;
             this.RightWaveform.Children.Add(rightBar);
         }
+
+        var particleBrush = new SolidColorBrush(MediaColor.FromRgb(100, 200, 255));
+        for (int i = 0; i < ParticleCount; i++)
+        {
+            this.ResetParticle(i);
+            
+            this.pShapes[i] = new System.Windows.Shapes.Ellipse
+            {
+                Width = 2 + (this.random.NextDouble() * 2),
+                Height = 2 + (this.random.NextDouble() * 2),
+                Fill = particleBrush,
+                Opacity = 0,
+                IsHitTestVisible = false
+            };
+            // Start off-screen initially
+            System.Windows.Controls.Canvas.SetLeft(this.pShapes[i], -100);
+            System.Windows.Controls.Canvas.SetTop(this.pShapes[i], -100);
+            this.ParticleCanvas.Children.Add(this.pShapes[i]);
+        }
+    }
+
+    private void ResetParticle(int i)
+    {
+        double frameWidth = this.ActualWidth > 0 ? this.ActualWidth : 500;
+        double halfW = frameWidth / 2.0;
+        double centerY = this.ParticleCanvas.ActualHeight > 0 ? this.ParticleCanvas.ActualHeight / 2.0 : 60.0;
+
+        // Spread fully across the horizontal line width uniformly
+        this.pX[i] = (this.random.NextDouble() * frameWidth);
+        this.pY[i] = centerY + ((this.random.NextDouble() - 0.5) * 4.0); // tightly on the line
+
+        // Exact straight up/down
+        this.pVX[i] = 0.0; 
+        
+        // Shoot UP or DOWN
+        bool goesUp = this.random.NextDouble() > 0.5;
+        this.pVY[i] = (goesUp ? -1.0 : 1.0) * (0.8 + this.random.NextDouble() * 3.0);
+        this.pLife[i] = 0.5 + (this.random.NextDouble() * 0.5);
     }
 
     public void SetSticky(bool isSticky)
@@ -141,20 +190,28 @@ internal partial class TranscriptionOverlayWindow : Window
 
     private void UpdateWaveformBounds()
     {
+        double dbIntensity = this.currentSmoothedRms * 400.0;
+        
+        // Shift history directly to create an undeniable outward physical scroll
+        // No sine waves or ripples that could cause optical illusions
         for (int i = WaveformBarCount - 1; i > 0; i--)
         {
             this.barTargets[i] = this.barTargets[i - 1];
         }
-
-        double dbIntensity = this.currentSmoothedRms * 350.0;
-        this.barTargets[0] = 3.0 + (dbIntensity * (0.6 + (this.random.NextDouble() * 0.8)));
+        
+        // The newest sample is placed exactly at the microphone (center)
+        this.barTargets[0] = 3.0 + (dbIntensity * (1.0 + (this.random.NextDouble() * 0.4)));
 
         for (int i = 0; i < WaveformBarCount; i++)
         {
-            double fadeDist = 1.0 - ((double)i / WaveformBarCount);
-            double maxDistHeight = 80.0 * fadeDist;
-            
-            this.barCurrents[i] = (this.barCurrents[i] * 0.7) + (this.barTargets[i] * 0.3);
+            double normalized = (double)i / WaveformBarCount;
+            // Smooth fade to the edges
+            double fadeDist = Math.Pow(1.0 - normalized, 1.2);
+            double maxDistHeight = 120.0 * fadeDist;
+
+            // Extremely fast responsive rise, so the scrolling is very literal
+            double moveSpeed = this.barTargets[i] > this.barCurrents[i] ? 0.8 : 0.4;
+            this.barCurrents[i] += (this.barTargets[i] - this.barCurrents[i]) * moveSpeed;
             
             double finalHeight = this.barCurrents[i] * fadeDist;
             if (finalHeight > maxDistHeight) finalHeight = maxDistHeight;
@@ -162,6 +219,26 @@ internal partial class TranscriptionOverlayWindow : Window
 
             this.leftBars[i].Height = finalHeight;
             this.rightBars[i].Height = finalHeight;
+        }
+
+        double particleIntensityBoost = dbIntensity * 0.05;
+        for (int i = 0; i < ParticleCount; i++)
+        {
+            // Pure vertical drift
+            this.pY[i] += this.pVY[i] + (this.pVY[i] * particleIntensityBoost);
+            
+            this.pLife[i] -= 0.01 + (particleIntensityBoost * 0.005);
+            if (this.pLife[i] <= 0 || this.pY[i] < -20 || this.pY[i] > this.ParticleCanvas.ActualHeight + 20)
+            {
+                this.ResetParticle(i);
+            }
+
+            System.Windows.Controls.Canvas.SetLeft(this.pShapes[i], this.pX[i]);
+            System.Windows.Controls.Canvas.SetTop(this.pShapes[i], this.pY[i]);
+            
+            double brightness = this.pLife[i] * (0.3 + (dbIntensity * 0.02));
+            if (brightness > 1.0) brightness = 1.0;
+            this.pShapes[i].Opacity = brightness;
         }
     }
 

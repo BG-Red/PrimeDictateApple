@@ -67,14 +67,22 @@
                 </Grid.RowDefinitions>
 
                 <!-- Visualization -->
-                <Grid Grid.Row="0" VerticalAlignment="Center" HorizontalAlignment="Stretch" ClipToBounds="True">
-                    <!-- Left Waveform -->
-                    <StackPanel Name="LeftWaveform" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,45,0" FlowDirection="RightToLeft" />
+                <Grid Grid.Row="0" VerticalAlignment="Center" HorizontalAlignment="Stretch" ClipToBounds="True" Margin="-16,0,-16,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
                     
-                    <!-- Right Waveform -->
-                    <StackPanel Name="RightWaveform" Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="45,0,0,0" />
+                    <!-- Particle Layer -->
+                    <Canvas Name="ParticleCanvas" Grid.ColumnSpan="2" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" IsHitTestVisible="False" />
+
+                    <!-- Left Waveform (starts in center, flows left) -->
+                    <StackPanel Name="LeftWaveform" Grid.Column="0" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,45,0" FlowDirection="RightToLeft" />
                     
-                    <Grid HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <!-- Right Waveform (starts in center, flows right) -->
+                    <StackPanel Name="RightWaveform" Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="45,0,0,0" />
+                    
+                    <Grid Grid.ColumnSpan="2" HorizontalAlignment="Center" VerticalAlignment="Center">
                         <!-- Background Glow -->
                         <Ellipse Width="250" Height="250" Opacity="0.5" IsHitTestVisible="False">
                             <Ellipse.Fill>
