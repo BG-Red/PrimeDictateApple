@@ -69,21 +69,12 @@ jobs:
           -FileVersion "${{ steps.version.outputs.file_version }}"
           -InformationalVersion "${{ steps.version.outputs.informational_version }}"
 
-      - name: Build online installer
-        shell: pwsh
-        run: >
-          .\scripts\Build-Installers.ps1 -Installer Online -SkipPublish
-          -PackageVersion "${{ steps.version.outputs.base_version }}"
-          -AssemblyVersion "${{ steps.version.outputs.assembly_version }}"
-          -FileVersion "${{ steps.version.outputs.file_version }}"
-          -InformationalVersion "${{ steps.version.outputs.informational_version }}"
-
       - name: Install AzureSignTool
         if: github.event_name != 'pull_request'
         shell: pwsh
         run: dotnet tool install --global AzureSignTool
 
-      - name: Sign executables and MSI (Azure Key Vault)
+      - name: Sign publish payload binaries (Azure Key Vault)
         if: github.event_name != 'pull_request'
         shell: pwsh
         env:
@@ -106,13 +97,9 @@ jobs:
 
           $timestampUrl = if ([string]::IsNullOrWhiteSpace($env:AZURESIGNTOOL_TIMESTAMP_URL)) { "http://timestamp.globalsign.com/tsa/advanced" } else { $env:AZURESIGNTOOL_TIMESTAMP_URL }
 
-          $filesToSign = @(
-            (Join-Path $env:PUBLISH_DIR "PrimeDictate.exe")
-          )
-
-          $msis = Get-ChildItem -Path $env:INSTALLER_DIR -Filter *.msi -File -ErrorAction SilentlyContinue
-          foreach ($msi in $msis) {
-            $filesToSign += $msi.FullName
+          $filesToSign = Get-ChildItem -Path $env:PUBLISH_DIR -Include *.exe,*.dll -File -Recurse | Select-Object -ExpandProperty FullName
+          if (-not $filesToSign -or $filesToSign.Count -eq 0) {
+            throw "No publish payload binaries found to sign under $env:PUBLISH_DIR"
           }
 
           foreach ($path in $filesToSign) {
@@ -130,6 +117,55 @@ jobs:
               -td sha256 `
               -fd sha256 `
               "$path"
+          }
+
+      - name: Build online installer
+        shell: pwsh
+        run: >
+          .\scripts\Build-Installers.ps1 -Installer Online -SkipPublish
+          -PackageVersion "${{ steps.version.outputs.base_version }}"
+          -AssemblyVersion "${{ steps.version.outputs.assembly_version }}"
+          -FileVersion "${{ steps.version.outputs.file_version }}"
+          -InformationalVersion "${{ steps.version.outputs.informational_version }}"
+
+      - name: Sign installer MSI (Azure Key Vault)
+        if: github.event_name != 'pull_request'
+        shell: pwsh
+        env:
+          AZURESIGNTOOL_KEYVAULT_URL: ${{ secrets.AZURESIGNTOOL_KEYVAULT_URL }}
+          AZURESIGNTOOL_CLIENT_ID: ${{ secrets.AZURESIGNTOOL_CLIENT_ID }}
+          AZURESIGNTOOL_TENANT_ID: ${{ secrets.AZURESIGNTOOL_TENANT_ID }}
+          AZURESIGNTOOL_CLIENT_SECRET: ${{ secrets.AZURESIGNTOOL_CLIENT_SECRET }}
+          AZURESIGNTOOL_CERT_NAME: ${{ secrets.AZURESIGNTOOL_CERT_NAME }}
+          AZURESIGNTOOL_TIMESTAMP_URL: ${{ secrets.AZURESIGNTOOL_TIMESTAMP_URL }}
+        run: |
+          if (
+            [string]::IsNullOrWhiteSpace($env:AZURESIGNTOOL_KEYVAULT_URL) -or
+            [string]::IsNullOrWhiteSpace($env:AZURESIGNTOOL_CLIENT_ID) -or
+            [string]::IsNullOrWhiteSpace($env:AZURESIGNTOOL_TENANT_ID) -or
+            [string]::IsNullOrWhiteSpace($env:AZURESIGNTOOL_CLIENT_SECRET) -or
+            [string]::IsNullOrWhiteSpace($env:AZURESIGNTOOL_CERT_NAME)
+          ) {
+            throw "Signing secrets are missing. Configure AZURESIGNTOOL_* repository secrets."
+          }
+
+          $timestampUrl = if ([string]::IsNullOrWhiteSpace($env:AZURESIGNTOOL_TIMESTAMP_URL)) { "http://timestamp.globalsign.com/tsa/advanced" } else { $env:AZURESIGNTOOL_TIMESTAMP_URL }
+          $msis = Get-ChildItem -Path $env:INSTALLER_DIR -Filter *.msi -File -ErrorAction SilentlyContinue
+          if (-not $msis -or $msis.Count -eq 0) {
+            throw "No MSI files found to sign under $env:INSTALLER_DIR"
+          }
+
+          foreach ($msi in $msis) {
+            azuresigntool sign `
+              -kvu $env:AZURESIGNTOOL_KEYVAULT_URL `
+              -kvi $env:AZURESIGNTOOL_CLIENT_ID `
+              -kvt $env:AZURESIGNTOOL_TENANT_ID `
+              -kvs $env:AZURESIGNTOOL_CLIENT_SECRET `
+              -kvc $env:AZURESIGNTOOL_CERT_NAME `
+              -tr $timestampUrl `
+              -td sha256 `
+              -fd sha256 `
+              "$($msi.FullName)"
           }
 
       - name: Upload build artifacts
