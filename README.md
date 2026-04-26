@@ -1,6 +1,6 @@
 # PrimeDictate
 
-A locally hosted, global hotkey dictation utility for fast desktop workflows. It captures the default microphone, shows live local transcription in a small overlay, and types the final transcript into the focused application after a silence auto-commit or manual stop using SharpHook (no synthetic paste, no clipboard round-trip on the hot path).
+A locally hosted, global hotkey dictation utility for fast desktop workflows. It captures the default microphone, shows live local transcription in a small overlay, and types the final transcript into the current application after a silence auto-commit or manual stop using SharpHook (no synthetic paste, no clipboard round-trip on the hot path).
 
 ## Features
 
@@ -8,13 +8,14 @@ A locally hosted, global hotkey dictation utility for fast desktop workflows. It
 - **Tray workspace UI**: Open **Workspace** from the tray icon to browse per-session dictation threads and global runtime logs in a clearer, column-based dashboard layout.
 - **Log signal over noise**: Repeated adjacent log entries are collapsed (for example `(... x12)`) and history is capped to keep memory usage predictable.
 - **Live preview overlay**: While recording, the app periodically re-transcribes the growing buffer with the selected local backend and shows the current hypothesis in a non-activating overlay.
-- **Silence auto-commit**: When speech has stopped for the configured delay (default 3 seconds), PrimeDictate stops capture, runs a final transcription pass, and sends the final text with `SimulateTextEntry`.
+- **Silence auto-commit**: When speech has stopped for the configured delay (default 3 seconds), PrimeDictate stops capture, runs a final transcription pass, and sends the final text once.
 - **Transcript history**: Every committed transcript is saved to local history so you can review past dictations, recover text sent to the wrong app, and copy transcript text (with or without metadata).
 - **History filters and detail view**: History includes a filter dropdown (**All**, **Injected**, **NotInjected**) plus an expanded detail pane for full transcript and target metadata.
 - **History entry points**: Open history from the tray menu, from the settings window, or from the workspace toolbar.
 - **Final-only target typing**: The target editor is not mutated while recording. Live corrections stay in the overlay so code editors and IntelliSense are not fighting backspace/retype updates.
 - **Coding mode**: Optional setting sends an Enter key immediately after a successful transcript commit.
-- **Foreground guard**: The foreground window is captured when recording starts; if focus changes before the transcript is ready, injection is skipped rather than typing into the wrong app.
+- **Foreground guard**: The foreground window is captured when recording starts; by default PrimeDictate still skips injection if focus changes before the transcript is ready.
+- **Return to original target (optional)**: A dictation setting can deliver the final transcript back to the window that had focus when recording started, first trying a safe direct write to the captured edit control on Windows and otherwise reactivating that window before typing.
 - **Built-in pointer cue**: If Windows Mouse Sonar is enabled, PrimeDictate pulses it on recording/processing transitions by tapping Ctrl. It does not draw a custom pointer overlay or change the user's Windows setting.
 - **Audio**: Windows default capture device via NAudio **WASAPI** (`WasapiCapture`), resampled to **16 kHz, 16-bit, mono PCM** for local transcription engines.
 - **Mic isolation mode (best effort)**: Optional exclusive-capture setting can block other apps from the mic on supported devices; if exclusive capture fails, PrimeDictate automatically falls back to shared mode and continues dictation.
@@ -119,7 +120,7 @@ See [installer/README.md](installer/README.md) for details. Redistribute the GGM
 
 ### GitHub Releases and Webflow links
 
-Tagged pushes that match `vX.Y.Z` keep the workflow artifact upload for CI debugging and also publish installer assets to the matching GitHub Release. If the Release does not exist yet, the workflow creates it first. Release downloads come from **GitHub Releases**, not the temporary workflow artifact ZIP.
+Tagged pushes that match `vX.Y.Z` keep the workflow artifact upload for CI debugging and also publish installer assets to the matching GitHub Release. If the Release does not exist yet, the workflow creates it first. Release downloads come from **GitHub Releases**, not the temporary workflow artifact ZIP. If Azure Key Vault signing secrets are unavailable, the release flow still publishes the MSI asset as an unsigned build instead of failing before release upload.
 
 - Release page: `https://github.com/CakeRepository/PrimeDictate/releases/tag/vX.Y.Z`
 - Direct MSI asset: `https://github.com/CakeRepository/PrimeDictate/releases/download/vX.Y.Z/PrimeDictate-Setup-vX.Y.Z.msi`
@@ -172,7 +173,7 @@ The app starts in the tray. On first launch, complete setup, then focus another 
 |-----------|---------|
 | `PRIME_DICTATE_MODEL` | Absolute path to the active GGML Whisper model file. PrimeDictate sets this process-locally from saved settings only when the Whisper backend is selected. |
 | `WhisperProcessorBuilder` | Language detection and other inference options are set in `WhisperTextInjectionPipeline` (`WithLanguageDetection()`, etc.). |
-| User settings + first-run | Stored at `%LocalAppData%\PrimeDictate\settings.json` with `FirstRunCompleted`, dictation hotkey, selected backend, selected model id, resolved model path, optional exclusive mic capture toggle, silence auto-commit delay, overlay placement, and coding-mode Enter toggle. |
+| User settings + first-run | Stored at `%LocalAppData%\PrimeDictate\settings.json` with `FirstRunCompleted`, dictation hotkey, selected backend, selected model id, resolved model path, optional exclusive mic capture toggle, silence auto-commit delay, return-to-original-target toggle, overlay placement, and coding-mode Enter toggle. |
 | Transcript history | Stored at `%LocalAppData%\PrimeDictate\history.json` with timestamp, transcript text, thread id, delivery status, target display name, optional error, and audio duration metadata. |
 
 ## Architecture (high level)
@@ -184,8 +185,8 @@ The app starts in the tray. On first launch, complete setup, then focus another 
 | Live preview | `DictationController.LivePreviewLoopAsync` snapshots the growing PCM buffer, re-runs the selected local backend for the overlay, and watches recent RMS level for silence. |
 | Transcription | Whisper uses `WhisperFactory.FromPath` → `WhisperProcessor` → `ProcessAsync`; Parakeet uses sherpa-onnx `OfflineRecognizer` with the NeMo transducer bundle files. |
 | Overlay | `TranscriptionOverlayWindow` is topmost, non-activating, and click-through so the target editor keeps focus. |
-| Typing | `WhisperTextInjectionPipeline.TranscribeAsync` builds the final transcript, then `InjectTextToTarget` sends it once with `SimulateTextEntry`; optional coding mode follows with `VcEnter`. |
-| Target safety + pointer cue | `WindowsInputHelpers.cs` captures the foreground window at recording start, checks it before injection, and uses Windows Mouse Sonar if enabled. |
+| Typing | `WhisperTextInjectionPipeline.TranscribeAsync` builds the final transcript, then `InjectTextToTarget` sends it once; optional coding mode follows with `VcEnter`. |
+| Target safety + pointer cue | `WindowsInputHelpers.cs` captures the foreground window and focused control at recording start, can optionally restore that target for final injection, and uses Windows Mouse Sonar if enabled. |
 
 ### Why not clipboard + Ctrl+V?
 

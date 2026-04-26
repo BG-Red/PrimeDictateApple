@@ -285,12 +285,19 @@
                             <CheckBox Name="SendEnterAfterCommitCheckBox"
                                       Margin="0,10,0,0"
                                       Content="Coding mode: send Enter after committing transcript." />
+                            <CheckBox Name="ReturnToStartTargetCheckBox"
+                                      Margin="0,10,0,0"
+                                      Content="Return the final transcript to the window that had focus when dictation started." />
+                            <TextBlock Margin="0,6,0,0"
+                                       Foreground="#666"
+                                       TextWrapping="Wrap"
+                                       Text="When enabled, PrimeDictate first tries a safe direct write back to the original edit control on Windows. If that is not available, it brings the original window back and types there instead of skipping the commit." />
                         </StackPanel>
 
                         <TextBlock Margin="0,18,0,0"
-                                   Foreground="#666"
-                                   TextWrapping="Wrap"
-                                   Text="Press your hotkey globally to start dictation. Live preview stays in the overlay, then the final transcript is typed into the focused Windows app after silence or when you stop manually." />
+                                    Foreground="#666"
+                                    TextWrapping="Wrap"
+                                    Text="Press your hotkey globally to start dictation. Live preview stays in the overlay, then the final transcript is typed once after silence or when you stop manually." />
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>

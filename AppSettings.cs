@@ -26,6 +26,8 @@ internal sealed class AppSettings
 
     public bool SendEnterAfterCommit { get; set; }
 
+    public bool ReturnToStartTargetOnCommit { get; set; }
+
     public bool IsOverlaySticky { get; set; }
 
     public static AppSettings CreateDefaultForFirstRun() => new()
@@ -39,6 +41,7 @@ internal sealed class AppSettings
         ExclusiveMicAccessWhileDictating = false,
         AutoCommitSilenceSeconds = 3,
         SendEnterAfterCommit = false,
+        ReturnToStartTargetOnCommit = false,
         IsOverlaySticky = false
     };
 }

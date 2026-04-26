@@ -94,6 +94,7 @@ internal sealed class DictationController : IAsyncDisposable
     private bool exclusiveMicAccessWhileDictating;
     private TimeSpan autoCommitSilenceDelay;
     private bool sendEnterAfterCommit;
+    private bool returnToStartTargetOnCommit;
 
     private CancellationTokenSource? livePreviewCts;
     private Task? livePreviewTask;
@@ -113,6 +114,7 @@ internal sealed class DictationController : IAsyncDisposable
         bool exclusiveMicAccessWhileDictating = false,
         TimeSpan? autoCommitSilenceDelay = null,
         bool sendEnterAfterCommit = false,
+        bool returnToStartTargetOnCommit = false,
         TranscriptionBackendKind transcriptionBackend = TranscriptionBackendKind.Whisper,
         string? selectedModelId = null,
         string? modelPath = null)
@@ -120,6 +122,7 @@ internal sealed class DictationController : IAsyncDisposable
         this.exclusiveMicAccessWhileDictating = exclusiveMicAccessWhileDictating;
         this.autoCommitSilenceDelay = NormalizeSilenceDelay(autoCommitSilenceDelay ?? TimeSpan.FromSeconds(3));
         this.sendEnterAfterCommit = sendEnterAfterCommit;
+        this.returnToStartTargetOnCommit = returnToStartTargetOnCommit;
         this.textInjectionPipeline.UpdateConfiguration(transcriptionBackend, selectedModelId, modelPath);
         this.recorder.AudioLevelUpdated += rms => this.AudioLevelUpdated?.Invoke(rms);
     }
@@ -137,6 +140,7 @@ internal sealed class DictationController : IAsyncDisposable
         bool exclusiveMicAccessWhileDictating,
         TimeSpan autoCommitSilenceDelay,
         bool sendEnterAfterCommit,
+        bool returnToStartTargetOnCommit,
         TranscriptionBackendKind transcriptionBackend,
         string? selectedModelId,
         string? modelPath)
@@ -146,6 +150,7 @@ internal sealed class DictationController : IAsyncDisposable
             this.exclusiveMicAccessWhileDictating = exclusiveMicAccessWhileDictating;
             this.autoCommitSilenceDelay = NormalizeSilenceDelay(autoCommitSilenceDelay);
             this.sendEnterAfterCommit = sendEnterAfterCommit;
+            this.returnToStartTargetOnCommit = returnToStartTargetOnCommit;
         }
 
         this.textInjectionPipeline.UpdateConfiguration(transcriptionBackend, selectedModelId, modelPath);
@@ -422,29 +427,68 @@ internal sealed class DictationController : IAsyncDisposable
                 return;
             }
 
+            bool shouldSendEnter;
+            bool shouldReturnToStartTarget;
+            lock (this.configSync)
+            {
+                shouldSendEnter = this.sendEnterAfterCommit;
+                shouldReturnToStartTarget = this.returnToStartTargetOnCommit;
+            }
+
             if (target is not null && !target.IsStillForeground())
             {
-                AppLog.Error(
-                    $"Focused window changed before transcript typing; skipped injection for {target.DisplayName}.",
+                if (!shouldReturnToStartTarget)
+                {
+                    AppLog.Error(
+                        $"Focused window changed before transcript typing; skipped injection for {target.DisplayName}.",
+                        this.activeThreadId);
+                    this.PublishTranscriptCommit(
+                        finalTranscript,
+                        audio.Duration,
+                        TranscriptDeliveryStatus.SkippedFocusChanged,
+                        target.DisplayName,
+                        "Focused window changed before transcript typing.",
+                        sendEnterAfterCommit: false);
+                    return;
+                }
+
+                if (!shouldSendEnter && target.TryInjectTextDirectly(finalTranscript))
+                {
+                    AppLog.Info(
+                        $"Transcript inserted into the original target without reactivating {target.DisplayName}.",
+                        this.activeThreadId);
+                    this.PublishTranscriptCommit(
+                        finalTranscript,
+                        audio.Duration,
+                        TranscriptDeliveryStatus.Injected,
+                        target.DisplayName,
+                        error: null,
+                        sendEnterAfterCommit: false);
+                    return;
+                }
+
+                if (!target.TryRestoreForInput())
+                {
+                    AppLog.Error(
+                        $"Focused window changed before transcript typing; could not restore original target {target.DisplayName}.",
+                        this.activeThreadId);
+                    this.PublishTranscriptCommit(
+                        finalTranscript,
+                        audio.Duration,
+                        TranscriptDeliveryStatus.SkippedFocusChanged,
+                        target.DisplayName,
+                        "Focused window changed and PrimeDictate could not restore the original target.",
+                        sendEnterAfterCommit: false);
+                    return;
+                }
+
+                AppLog.Info(
+                    $"Focused window changed; restored original target {target.DisplayName} for transcript typing.",
                     this.activeThreadId);
-                this.PublishTranscriptCommit(
-                    finalTranscript,
-                    audio.Duration,
-                    TranscriptDeliveryStatus.SkippedFocusChanged,
-                    target.DisplayName,
-                    "Focused window changed before transcript typing.",
-                    sendEnterAfterCommit: false);
-                return;
             }
 
             this.textInjectionPipeline.InjectTextToTarget(finalTranscript);
             AppLog.Info("Transcript typed into target.", this.activeThreadId);
-
-            bool shouldSendEnter;
-            lock (this.configSync)
-            {
-                shouldSendEnter = this.sendEnterAfterCommit;
-            }
 
             if (shouldSendEnter)
             {

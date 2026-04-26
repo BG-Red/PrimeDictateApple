@@ -58,6 +58,7 @@ internal partial class SettingsWindow : Window
         this.ExclusiveMicAccessCheckBox.IsChecked = settings.ExclusiveMicAccessWhileDictating;
         this.AutoCommitSilenceSecondsTextBox.Text = settings.AutoCommitSilenceSeconds.ToString(CultureInfo.InvariantCulture);
         this.SendEnterAfterCommitCheckBox.IsChecked = settings.SendEnterAfterCommit;
+        this.ReturnToStartTargetCheckBox.IsChecked = settings.ReturnToStartTargetOnCommit;
 
         this.WelcomeTab.Header = isFirstRun ? "Welcome" : "Overview";
         this.HeaderText.Text = isFirstRun ? "PrimeDictate first-run setup" : "PrimeDictate settings";
@@ -1015,6 +1016,7 @@ internal partial class SettingsWindow : Window
             ExclusiveMicAccessWhileDictating = this.ExclusiveMicAccessCheckBox.IsChecked == true,
             AutoCommitSilenceSeconds = autoCommitSeconds,
             SendEnterAfterCommit = this.SendEnterAfterCommitCheckBox.IsChecked == true,
+            ReturnToStartTargetOnCommit = this.ReturnToStartTargetCheckBox.IsChecked == true,
             IsOverlaySticky = this.isOverlaySticky
         };
 

@@ -6,7 +6,11 @@ using SharpHook.Data;
 
 namespace PrimeDictate;
 
-internal sealed record ForegroundInputTarget(IntPtr WindowHandle, uint ProcessId, string? Title)
+internal sealed record ForegroundInputTarget(
+    IntPtr WindowHandle,
+    IntPtr FocusedWindowHandle,
+    uint ProcessId,
+    string? Title)
 {
     public string DisplayName =>
         string.IsNullOrWhiteSpace(this.Title)
@@ -30,7 +34,39 @@ internal sealed record ForegroundInputTarget(IntPtr WindowHandle, uint ProcessId
         }
 
         _ = NativeMethods.GetWindowThreadProcessId(handle, out var processId);
-        return new ForegroundInputTarget(handle, processId, GetWindowTitle(handle));
+        return new ForegroundInputTarget(handle, GetFocusedWindow(handle), processId, GetWindowTitle(handle));
+    }
+
+    public bool TryInjectTextDirectly(string text)
+    {
+        if (this.FocusedWindowHandle == IntPtr.Zero ||
+            !NativeMethods.IsWindow(this.FocusedWindowHandle) ||
+            (this.FocusedWindowHandle != this.WindowHandle &&
+             !NativeMethods.IsChild(this.WindowHandle, this.FocusedWindowHandle)))
+        {
+            return false;
+        }
+
+        return WindowsFocusedTextControl.TryReplaceSelection(this.FocusedWindowHandle, text);
+    }
+
+    public bool TryRestoreForInput() => WindowsInputActivation.TryRestore(this);
+
+    private static IntPtr GetFocusedWindow(IntPtr handle)
+    {
+        var threadId = NativeMethods.GetWindowThreadProcessId(handle, out _);
+        if (threadId == 0)
+        {
+            return IntPtr.Zero;
+        }
+
+        var guiThreadInfo = new NativeMethods.GuiThreadInfo
+        {
+            Size = Marshal.SizeOf<NativeMethods.GuiThreadInfo>()
+        };
+        return NativeMethods.GetGUIThreadInfo(threadId, ref guiThreadInfo)
+            ? guiThreadInfo.FocusWindow
+            : IntPtr.Zero;
     }
 
     private static string? GetWindowTitle(IntPtr handle)
@@ -259,6 +295,84 @@ internal static class WindowsUnicodeInput
     }
 }
 
+internal static class WindowsInputActivation
+{
+    private const int SwRestore = 9;
+    private static readonly TimeSpan ActivationTimeout = TimeSpan.FromMilliseconds(500);
+
+    public static bool TryRestore(ForegroundInputTarget target)
+    {
+        if (!OperatingSystem.IsWindows() || !NativeMethods.IsWindow(target.WindowHandle))
+        {
+            return false;
+        }
+
+        if (NativeMethods.IsIconic(target.WindowHandle))
+        {
+            _ = NativeMethods.ShowWindowAsync(target.WindowHandle, SwRestore);
+        }
+
+        var currentThreadId = NativeMethods.GetCurrentThreadId();
+        var foregroundWindow = NativeMethods.GetForegroundWindow();
+        var foregroundThreadId = foregroundWindow == IntPtr.Zero
+            ? 0
+            : NativeMethods.GetWindowThreadProcessId(foregroundWindow, out _);
+        var targetThreadId = NativeMethods.GetWindowThreadProcessId(target.WindowHandle, out _);
+        var attachedThreadIds = new List<uint>(capacity: 2);
+
+        try
+        {
+            AttachToThread(currentThreadId, foregroundThreadId, attachedThreadIds);
+            AttachToThread(currentThreadId, targetThreadId, attachedThreadIds);
+
+            _ = NativeMethods.BringWindowToTop(target.WindowHandle);
+            _ = NativeMethods.SetForegroundWindow(target.WindowHandle);
+            _ = NativeMethods.SetActiveWindow(target.WindowHandle);
+
+            if (target.FocusedWindowHandle != IntPtr.Zero &&
+                NativeMethods.IsWindow(target.FocusedWindowHandle) &&
+                (target.FocusedWindowHandle == target.WindowHandle ||
+                 NativeMethods.IsChild(target.WindowHandle, target.FocusedWindowHandle)))
+            {
+                _ = NativeMethods.SetFocus(target.FocusedWindowHandle);
+            }
+        }
+        finally
+        {
+            foreach (var threadId in attachedThreadIds)
+            {
+                _ = NativeMethods.AttachThreadInput(currentThreadId, threadId, false);
+            }
+        }
+
+        var stopwatch = Stopwatch.StartNew();
+        while (stopwatch.Elapsed < ActivationTimeout)
+        {
+            if (target.IsStillForeground())
+            {
+                return true;
+            }
+
+            Thread.Sleep(10);
+        }
+
+        return target.IsStillForeground();
+    }
+
+    private static void AttachToThread(uint currentThreadId, uint otherThreadId, List<uint> attachedThreadIds)
+    {
+        if (otherThreadId == 0 || otherThreadId == currentThreadId || attachedThreadIds.Contains(otherThreadId))
+        {
+            return;
+        }
+
+        if (NativeMethods.AttachThreadInput(currentThreadId, otherThreadId, true))
+        {
+            attachedThreadIds.Add(otherThreadId);
+        }
+    }
+}
+
 internal static class WindowsFocusedTextControl
 {
     private const int EmReplaceSel = 0x00C2;
@@ -289,8 +403,17 @@ internal static class WindowsFocusedTextControl
             return false;
         }
 
-        var focusedWindow = guiThreadInfo.FocusWindow;
-        if (focusedWindow == IntPtr.Zero || !IsEditLikeWindow(focusedWindow))
+        return TryReplaceSelection(guiThreadInfo.FocusWindow, text);
+    }
+
+    public static bool TryReplaceSelection(IntPtr focusedWindow, string text)
+    {
+        if (string.IsNullOrEmpty(text))
+        {
+            return true;
+        }
+
+        if (focusedWindow == IntPtr.Zero || !NativeMethods.IsWindow(focusedWindow) || !IsEditLikeWindow(focusedWindow))
         {
             return false;
         }
@@ -331,8 +454,24 @@ internal static partial class NativeMethods
     [DllImport("user32.dll")]
     internal static extern IntPtr GetForegroundWindow();
 
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool IsWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool IsChild(IntPtr hWndParent, IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool IsIconic(IntPtr hWnd);
+
     [DllImport("user32.dll", SetLastError = true)]
     internal static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     internal static extern int GetWindowText(IntPtr hWnd, StringBuilder text, int count);
@@ -356,6 +495,24 @@ internal static partial class NativeMethods
         uint flags,
         uint timeout,
         out IntPtr result);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool SetForegroundWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool BringWindowToTop(IntPtr hWnd);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    internal static extern IntPtr SetFocus(IntPtr hWnd);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    internal static extern IntPtr SetActiveWindow(IntPtr hWnd);
 
     [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]

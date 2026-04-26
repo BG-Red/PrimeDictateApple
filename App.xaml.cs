@@ -65,6 +65,7 @@ public partial class App : System.Windows.Application
             this.settings.ExclusiveMicAccessWhileDictating,
             TimeSpan.FromSeconds(this.settings.AutoCommitSilenceSeconds),
             this.settings.SendEnterAfterCommit,
+            this.settings.ReturnToStartTargetOnCommit,
             this.settings.TranscriptionBackend,
             this.settings.SelectedModelId,
             this.settings.ModelPath);
@@ -232,6 +233,7 @@ public partial class App : System.Windows.Application
             newSettings.ExclusiveMicAccessWhileDictating,
             TimeSpan.FromSeconds(newSettings.AutoCommitSilenceSeconds),
             newSettings.SendEnterAfterCommit,
+            newSettings.ReturnToStartTargetOnCommit,
             newSettings.TranscriptionBackend,
             newSettings.SelectedModelId,
             newSettings.ModelPath);
