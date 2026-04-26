@@ -15,9 +15,10 @@ internal partial class TranscriptionOverlayWindow : Window
     private const double FullOverlayHeight = 400;
     private const double CompactOverlaySize = 108;
     private const double FullMicSize = 80;
-    private const double CompactMicSize = 62;
+    private const double CompactMicSize = 46;
     private const double FullGlowSize = 250;
-    private const double CompactGlowSize = 150;
+    private const double CompactGlowSize = 120;
+    private const double ParticleCanvasFallbackHeight = 120;
     private const int MaxDisplayedTranscriptChars = 900;
     private const int WaveformBarCount = 90;
     private const int ParticleCount = 150;
@@ -43,6 +44,7 @@ internal partial class TranscriptionOverlayWindow : Window
     private DateTime startTime;
     private double currentSmoothedRms;
     private double targetRms;
+    private bool particlesSeeded;
     private OverlayMode overlayMode = OverlayMode.CompactMicrophone;
     private SolidColorBrush currentStateBrush = ReadyBrush;
 
@@ -50,6 +52,8 @@ internal partial class TranscriptionOverlayWindow : Window
     {
         InitializeComponent();
         this.SourceInitialized += this.OnSourceInitialized;
+        this.Loaded += this.OnWindowLoaded;
+        this.ParticleCanvas.SizeChanged += this.OnParticleCanvasSizeChanged;
         
         this.timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
         this.timer.Tick += this.OnTimerTick;
@@ -120,7 +124,7 @@ internal partial class TranscriptionOverlayWindow : Window
         for (int i = 0; i < ParticleCount; i++)
         {
             this.ResetParticle(i);
-            
+             
             this.pShapes[i] = new System.Windows.Shapes.Ellipse
             {
                 Width = 2 + (this.random.NextDouble() * 2),
@@ -136,23 +140,34 @@ internal partial class TranscriptionOverlayWindow : Window
         }
     }
 
-    private void ResetParticle(int i)
+    private void ResetParticle(int i, bool seedInFlight = false)
     {
-        double frameWidth = this.ActualWidth > 0 ? this.ActualWidth : 500;
-        double halfW = frameWidth / 2.0;
-        double centerY = this.ParticleCanvas.ActualHeight > 0 ? this.ParticleCanvas.ActualHeight / 2.0 : 60.0;
+        double frameWidth = this.GetParticleCanvasWidth();
+        double frameHeight = this.GetParticleCanvasHeight();
+        double centerY = frameHeight / 2.0;
+        double travelRange = Math.Max(frameHeight * 0.46, 24.0);
 
         // Spread fully across the horizontal line width uniformly
         this.pX[i] = (this.random.NextDouble() * frameWidth);
-        this.pY[i] = centerY + ((this.random.NextDouble() - 0.5) * 4.0); // tightly on the line
 
         // Exact straight up/down
-        this.pVX[i] = 0.0; 
+        this.pVX[i] = 0.0;
         
         // Shoot UP or DOWN
         bool goesUp = this.random.NextDouble() > 0.5;
         this.pVY[i] = (goesUp ? -1.0 : 1.0) * (0.8 + this.random.NextDouble() * 3.0);
-        this.pLife[i] = 0.5 + (this.random.NextDouble() * 0.5);
+
+        if (seedInFlight)
+        {
+            double progress = this.random.NextDouble();
+            this.pY[i] = centerY + ((goesUp ? -1.0 : 1.0) * progress * travelRange);
+            this.pLife[i] = 0.2 + ((1.0 - progress) * 0.8);
+        }
+        else
+        {
+            this.pY[i] = centerY + ((this.random.NextDouble() - 0.5) * 4.0);
+            this.pLife[i] = 0.5 + (this.random.NextDouble() * 0.5);
+        }
     }
 
     public void SetSticky(bool isSticky)
@@ -172,6 +187,8 @@ internal partial class TranscriptionOverlayWindow : Window
         this.LeftWaveform.Visibility = isCompact ? Visibility.Collapsed : Visibility.Visible;
         this.RightWaveform.Visibility = isCompact ? Visibility.Collapsed : Visibility.Visible;
         this.ParticleCanvas.Visibility = isCompact ? Visibility.Collapsed : Visibility.Visible;
+        this.GlowEllipse.Visibility = isCompact ? Visibility.Collapsed : Visibility.Visible;
+        this.MicCircle.Visibility = isCompact ? Visibility.Collapsed : Visibility.Visible;
 
         this.HeaderRow.Height = isCompact ? new GridLength(0) : GridLength.Auto;
         this.SpacerRow.Height = isCompact ? new GridLength(0) : new GridLength(12);
@@ -181,8 +198,12 @@ internal partial class TranscriptionOverlayWindow : Window
 
         this.ContentPanel.Margin = isCompact ? new Thickness(10) : new Thickness(16, 8, 16, 16);
         this.VisualizationPanel.Margin = isCompact ? new Thickness(0) : new Thickness(-16, 0, -16, 0);
-        this.OverlayBorder.CornerRadius = isCompact ? new CornerRadius(28) : new CornerRadius(12);
+        this.OverlayBorder.CornerRadius = isCompact ? new CornerRadius(0) : new CornerRadius(12);
+        this.OverlayBorder.Background = isCompact ? System.Windows.Media.Brushes.Transparent : CreateFrozenBrush(13, 17, 23);
+        this.OverlayBorder.BorderThickness = isCompact ? new Thickness(0) : new Thickness(1);
+        this.OverlayBorder.BorderBrush = isCompact ? System.Windows.Media.Brushes.Transparent : CreateFrozenBrush(51, 51, 51);
         this.ResizeMode = isCompact ? ResizeMode.NoResize : ResizeMode.CanResizeWithGrip;
+        this.Cursor = isCompact ? System.Windows.Input.Cursors.Hand : System.Windows.Input.Cursors.Arrow;
 
         if (isCompact)
         {
@@ -205,11 +226,34 @@ internal partial class TranscriptionOverlayWindow : Window
 
         this.ConfigureMicVisuals(isCompact);
         this.ApplyStateBrush();
+        this.UpdateVisualizerLoopState();
 
         if (isCompact)
         {
             this.PositionCompactInLowerRight();
         }
+        else
+        {
+            this.Dispatcher.BeginInvoke(() => this.EnsureParticleLayout(forceRefresh: !this.particlesSeeded), DispatcherPriority.Loaded);
+        }
+    }
+
+    public void PositionFullPanelInLowerCenter()
+    {
+        if (this.overlayMode != OverlayMode.FullPanel)
+        {
+            return;
+        }
+
+        this.Dispatcher.BeginInvoke(() =>
+        {
+            const double bottomMargin = 56;
+            var workArea = SystemParameters.WorkArea;
+            double overlayWidth = this.ActualWidth > 0 ? this.ActualWidth : this.Width;
+            double overlayHeight = this.ActualHeight > 0 ? this.ActualHeight : this.Height;
+            this.Left = workArea.Left + ((workArea.Width - overlayWidth) / 2.0);
+            this.Top = workArea.Bottom - overlayHeight - bottomMargin;
+        }, DispatcherPriority.Loaded);
     }
 
     public void SetReadyState(string backendLabel)
@@ -222,8 +266,8 @@ internal partial class TranscriptionOverlayWindow : Window
         this.ToolTip = statusText;
         this.TimerText.Text = "00:00";
         this.timer.Stop();
-        this.visualizerTimer.Stop();
         this.UpdateAudioLevel(0);
+        this.UpdateVisualizerLoopState();
         this.OnVisualizerTick(null, EventArgs.Empty);
     }
 
@@ -242,8 +286,10 @@ internal partial class TranscriptionOverlayWindow : Window
         
         // Base scales when silent
         double minScale = 1.0;
-        double targetScale1 = minScale + (this.currentSmoothedRms * 4.0);
-        double targetScale2 = minScale + (this.currentSmoothedRms * 8.0);
+        double scaleMultiplier1 = this.overlayMode == OverlayMode.CompactMicrophone ? 2.2 : 4.0;
+        double scaleMultiplier2 = this.overlayMode == OverlayMode.CompactMicrophone ? 4.2 : 8.0;
+        double targetScale1 = minScale + (this.currentSmoothedRms * scaleMultiplier1);
+        double targetScale2 = minScale + (this.currentSmoothedRms * scaleMultiplier2);
         
         double targetOpacity1 = this.currentSmoothedRms > 0.01 ? 0.6 : 0.0;
         double targetOpacity2 = this.currentSmoothedRms > 0.05 ? 0.4 : 0.0;
@@ -261,6 +307,7 @@ internal partial class TranscriptionOverlayWindow : Window
 
     private void UpdateWaveformBounds()
     {
+        this.EnsureParticleLayout();
         double dbIntensity = this.currentSmoothedRms * 400.0;
         
         // Shift history directly to create an undeniable outward physical scroll
@@ -336,15 +383,15 @@ internal partial class TranscriptionOverlayWindow : Window
         {
             this.startTime = DateTime.Now;
             this.timer.Start();
-            this.visualizerTimer.Start();
         }
         else if (isProcessing && this.timer.IsEnabled)
         {
             this.timer.Stop();
-            this.visualizerTimer.Stop();
             UpdateAudioLevel(0); // Zero out visualizer
-            this.OnVisualizerTick(null, EventArgs.Empty);
         }
+
+        this.UpdateVisualizerLoopState();
+        this.OnVisualizerTick(null, EventArgs.Empty);
     }
 
     protected override void OnContentRendered(EventArgs e)
@@ -363,6 +410,8 @@ internal partial class TranscriptionOverlayWindow : Window
         this.visualizerTimer.Stop();
         this.visualizerTimer.Tick -= this.OnVisualizerTick;
         this.SourceInitialized -= this.OnSourceInitialized;
+        this.Loaded -= this.OnWindowLoaded;
+        this.ParticleCanvas.SizeChanged -= this.OnParticleCanvasSizeChanged;
         base.OnClosed(e);
     }
 
@@ -388,8 +437,34 @@ internal partial class TranscriptionOverlayWindow : Window
         this.TimerText.Text = $"{(int)elapsed.TotalMinutes:D2}:{elapsed.Seconds:D2}";
     }
 
+    private void OnWindowLoaded(object sender, RoutedEventArgs e)
+    {
+        this.EnsureParticleLayout(forceRefresh: true);
+        this.UpdateVisualizerLoopState();
+    }
+
+    private void OnParticleCanvasSizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        if (e.NewSize.Width <= 1 || e.NewSize.Height <= 1)
+        {
+            return;
+        }
+
+        this.EnsureParticleLayout(forceRefresh: !this.particlesSeeded);
+    }
+
     private void OnBorderMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
+        if (this.overlayMode == OverlayMode.CompactMicrophone)
+        {
+            if (System.Windows.Application.Current is App app)
+            {
+                app.ExpandOverlayPanel();
+            }
+
+            return;
+        }
+
         this.DragMove();
     }
 
@@ -412,11 +487,21 @@ internal partial class TranscriptionOverlayWindow : Window
 
     private void OnMinimizeClick(object sender, RoutedEventArgs e)
     {
+        if (this.ShouldCollapseToCompact())
+        {
+            return;
+        }
+
         this.WindowState = WindowState.Minimized;
     }
 
     private void OnCloseClick(object sender, RoutedEventArgs e)
     {
+        if (this.ShouldCollapseToCompact())
+        {
+            return;
+        }
+
         this.Hide();
     }
 
@@ -468,6 +553,61 @@ internal partial class TranscriptionOverlayWindow : Window
         this.Ring2.Stroke = micBrush;
     }
 
+    private bool ShouldCollapseToCompact()
+    {
+        if (this.overlayMode != OverlayMode.FullPanel)
+        {
+            return false;
+        }
+
+        if (System.Windows.Application.Current is not App app)
+        {
+            return false;
+        }
+
+        app.CollapseOverlayPanel();
+        return true;
+    }
+
+    private void UpdateVisualizerLoopState()
+    {
+        bool shouldRun = this.overlayMode == OverlayMode.FullPanel || this.timer.IsEnabled;
+        if (shouldRun)
+        {
+            if (!this.visualizerTimer.IsEnabled)
+            {
+                this.visualizerTimer.Start();
+            }
+        }
+        else if (this.visualizerTimer.IsEnabled)
+        {
+            this.visualizerTimer.Stop();
+        }
+    }
+
+    private void EnsureParticleLayout(bool forceRefresh = false)
+    {
+        if (!forceRefresh && this.particlesSeeded)
+        {
+            return;
+        }
+
+        if (this.GetParticleCanvasWidth() <= 1 || this.GetParticleCanvasHeight() <= 1)
+        {
+            return;
+        }
+
+        for (int i = 0; i < ParticleCount; i++)
+        {
+            this.ResetParticle(i, seedInFlight: true);
+            System.Windows.Controls.Canvas.SetLeft(this.pShapes[i], this.pX[i]);
+            System.Windows.Controls.Canvas.SetTop(this.pShapes[i], this.pY[i]);
+            this.pShapes[i].Opacity = 0.08 + (this.random.NextDouble() * 0.18);
+        }
+
+        this.particlesSeeded = true;
+    }
+
     private void PositionCompactInLowerRight()
     {
         if (this.overlayMode != OverlayMode.CompactMicrophone)
@@ -480,6 +620,16 @@ internal partial class TranscriptionOverlayWindow : Window
         this.Left = workArea.Right - this.Width - margin;
         this.Top = workArea.Bottom - this.Height - margin;
     }
+
+    private double GetParticleCanvasWidth() =>
+        this.ParticleCanvas.ActualWidth > 0
+            ? this.ParticleCanvas.ActualWidth
+            : Math.Max(this.VisualizationPanel.ActualWidth, FullOverlayWidth - 32);
+
+    private double GetParticleCanvasHeight() =>
+        this.ParticleCanvas.ActualHeight > 0
+            ? this.ParticleCanvas.ActualHeight
+            : ParticleCanvasFallbackHeight;
 
     private static SolidColorBrush CreateFrozenBrush(byte red, byte green, byte blue)
     {

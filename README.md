@@ -8,7 +8,7 @@ A locally hosted, global hotkey dictation utility for fast desktop workflows. It
 - **Tray workspace UI**: Open **Workspace** from the tray icon to browse per-session dictation threads and global runtime logs in a clearer, column-based dashboard layout.
 - **Log signal over noise**: Repeated adjacent log entries are collapsed (for example `(... x12)`) and history is capped to keep memory usage predictable.
 - **Live preview overlay**: While recording, the app periodically re-transcribes the growing buffer with the selected local backend and shows the current hypothesis in a non-activating overlay.
-- **Compact mic overlay**: The default overlay mode keeps a small lower-right microphone visible as a ready/listening indicator, with an option to switch back to the larger transcript panel.
+- **Compact mic overlay**: The default overlay mode keeps a small lower-right microphone visible as a ready/listening indicator. Clicking it temporarily expands the larger transcript panel without changing your saved default mode.
 - **Silence auto-commit**: When speech has stopped for the configured delay (default 3 seconds), PrimeDictate stops capture, runs a final transcription pass, and sends the final text once.
 - **Transcript history**: Every committed transcript is saved to local history so you can review past dictations, recover text sent to the wrong app, and copy transcript text (with or without metadata).
 - **History filters and detail view**: History includes a filter dropdown (**All**, **Injected**, **NotInjected**) plus an expanded detail pane for full transcript and target metadata.

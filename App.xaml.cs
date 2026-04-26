@@ -34,6 +34,7 @@ public partial class App : System.Windows.Application
     private string overlayTranscript = string.Empty;
     private bool isRecording;
     private bool isProcessing;
+    private bool overlayExpandedFromCompact;
     private DateTime errorStateUntilUtc = DateTime.MinValue;
 
     public App()
@@ -225,6 +226,7 @@ public partial class App : System.Windows.Application
             return;
         }
 
+        this.overlayExpandedFromCompact = false;
         this.settings = newSettings;
         this.settingsStore.Save(newSettings);
         this.ApplyModelPathOverride(newSettings);
@@ -376,7 +378,36 @@ public partial class App : System.Windows.Application
         }
 
         this.transcriptionOverlayWindow.SetSticky(this.settings.IsOverlaySticky);
-        this.transcriptionOverlayWindow.SetOverlayMode(this.settings.OverlayMode);
+        this.transcriptionOverlayWindow.SetOverlayMode(this.GetEffectiveOverlayMode());
+    }
+
+    internal void ExpandOverlayPanel()
+    {
+        if (this.settings?.OverlayMode != OverlayMode.CompactMicrophone)
+        {
+            return;
+        }
+
+        this.overlayExpandedFromCompact = true;
+        this.ShowTranscriptionOverlay();
+        this.transcriptionOverlayWindow?.PositionFullPanelInLowerCenter();
+    }
+
+    internal void CollapseOverlayPanel()
+    {
+        if (this.settings?.OverlayMode != OverlayMode.CompactMicrophone)
+        {
+            return;
+        }
+
+        if (this.settings.IsOverlaySticky)
+        {
+            return;
+        }
+
+        this.overlayExpandedFromCompact = false;
+        this.ApplyOverlayPreferences();
+        this.UpdateTranscriptionOverlay();
     }
 
     internal void SaveStickyState(bool isSticky)
@@ -403,6 +434,7 @@ public partial class App : System.Windows.Application
         this.transcriptionOverlayWindow.Close();
         this.transcriptionOverlayWindow = null;
         this.overlayTranscript = string.Empty;
+        this.overlayExpandedFromCompact = false;
     }
 
     private void UpdateTranscriptionOverlay()
@@ -461,6 +493,7 @@ public partial class App : System.Windows.Application
             {
                 this.overlayTranscript = string.Empty;
                 this.isProcessing = false;
+                this.overlayExpandedFromCompact = false;
                 this.UpdateTranscriptionOverlay();
             }
             else
@@ -544,6 +577,9 @@ public partial class App : System.Windows.Application
     private bool ShouldPersistOverlay() =>
         this.settings is not null &&
         (this.settings.IsOverlaySticky || this.settings.OverlayMode == OverlayMode.CompactMicrophone);
+
+    private OverlayMode GetEffectiveOverlayMode() =>
+        this.overlayExpandedFromCompact ? OverlayMode.FullPanel : this.settings?.OverlayMode ?? OverlayMode.CompactMicrophone;
 
     private string GetActiveBackendLabel() => this.settings?.TranscriptionBackend switch
     {
