@@ -1,0 +1,94 @@
+name: Build
+
+on:
+  push:
+    branches: [main, master]
+    tags: ["v*"]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  dotnet:
+    runs-on: windows-latest
+    env:
+      PUBLISH_DIR: ${{ github.workspace }}\artifacts\win-x64\publish
+      INSTALLER_DIR: ${{ github.workspace }}\artifacts\installer
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - name: Restore + build
+        run: dotnet build -c Release
+
+      - name: Publish (win-x64)
+        shell: pwsh
+        run: .\scripts\Publish-Windows.ps1
+
+      - name: Build online installer
+        shell: pwsh
+        run: .\scripts\Build-Installers.ps1 -Installer Online -SkipPublish
+
+      - name: Install AzureSignTool
+        if: github.event_name != 'pull_request'
+        shell: pwsh
+        run: dotnet tool install --global AzureSignTool
+
+      - name: Sign executables and MSI (Azure Key Vault)
+        if: github.event_name != 'pull_request'
+        shell: pwsh
+        env:
+          AZURESIGNTOOL_KEYVAULT_URL: ${{ secrets.AZURESIGNTOOL_KEYVAULT_URL }}
+          AZURESIGNTOOL_CLIENT_ID: ${{ secrets.AZURESIGNTOOL_CLIENT_ID }}
+          AZURESIGNTOOL_TENANT_ID: ${{ secrets.AZURESIGNTOOL_TENANT_ID }}
+          AZURESIGNTOOL_CLIENT_SECRET: ${{ secrets.AZURESIGNTOOL_CLIENT_SECRET }}
+          AZURESIGNTOOL_CERT_NAME: ${{ secrets.AZURESIGNTOOL_CERT_NAME }}
+          AZURESIGNTOOL_TIMESTAMP_URL: ${{ secrets.AZURESIGNTOOL_TIMESTAMP_URL }}
+        run: |
+          if (
+            [string]::IsNullOrWhiteSpace($env:AZURESIGNTOOL_KEYVAULT_URL) -or
+            [string]::IsNullOrWhiteSpace($env:AZURESIGNTOOL_CLIENT_ID) -or
+            [string]::IsNullOrWhiteSpace($env:AZURESIGNTOOL_TENANT_ID) -or
+            [string]::IsNullOrWhiteSpace($env:AZURESIGNTOOL_CLIENT_SECRET) -or
+            [string]::IsNullOrWhiteSpace($env:AZURESIGNTOOL_CERT_NAME)
+          ) {
+            throw "Signing secrets are missing. Configure AZURESIGNTOOL_* repository secrets."
+          }
+
+          $timestampUrl = if ([string]::IsNullOrWhiteSpace($env:AZURESIGNTOOL_TIMESTAMP_URL)) { "http://timestamp.globalsign.com/tsa/advanced" } else { $env:AZURESIGNTOOL_TIMESTAMP_URL }
+
+          $filesToSign = @(
+            (Join-Path $env:PUBLISH_DIR "PrimeDictate.exe")
+          )
+
+          $msis = Get-ChildItem -Path $env:INSTALLER_DIR -Filter *.msi -File -ErrorAction SilentlyContinue
+          foreach ($msi in $msis) {
+            $filesToSign += $msi.FullName
+          }
+
+          foreach ($path in $filesToSign) {
+            if (-not (Test-Path $path)) {
+              throw "Expected file not found for signing: $path"
+            }
+
+            azuresigntool sign `
+              -kvu $env:AZURESIGNTOOL_KEYVAULT_URL `
+              -kvi $env:AZURESIGNTOOL_CLIENT_ID `
+              -kvt $env:AZURESIGNTOOL_TENANT_ID `
+              -kvs $env:AZURESIGNTOOL_CLIENT_SECRET `
+              -kvc $env:AZURESIGNTOOL_CERT_NAME `
+              -tr $timestampUrl `
+              -td sha256 `
+              -fd sha256 `
+              "$path"
+          }
+
+      - name: Upload build artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: prime-dictate-win-x64
+          path: |
+            artifacts/win-x64/publish/**
+            artifacts/installer/*.msi

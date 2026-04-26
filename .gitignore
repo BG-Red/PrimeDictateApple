@@ -1,0 +1,10 @@
+bin/
+obj/
+artifacts/
+models/*.bin
+installer/wix/**/bin/
+installer/wix/**/obj/
+installer/trywix/
+.vs/
+*.user
+*.suo

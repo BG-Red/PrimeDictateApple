@@ -1,0 +1,40 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <RootNamespace>PrimeDictate</RootNamespace>
+    <AssemblyName>PrimeDictate</AssemblyName>
+    <Product>PrimeDictate</Product>
+    <AssemblyTitle>PrimeDictate</AssemblyTitle>
+    <Description>Windows global hotkey dictation with local Whisper transcription.</Description>
+    <Authors>PrimeDictate contributors</Authors>
+    <Company>PrimeDictate contributors</Company>
+    <Copyright>Copyright © PrimeDictate contributors</Copyright>
+    <RepositoryType>git</RepositoryType>
+    <ApplicationIcon>installer\wix\assets\PrimeDictate.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="NAudio" Version="2.3.0" />
+    <PackageReference Include="SharpHook" Version="7.1.1" />
+    <PackageReference Include="Whisper.net" Version="1.9.0" />
+    <PackageReference Include="Whisper.net.Runtime" Version="1.9.0" />
+    <PackageReference Include="Whisper.net.Runtime.Cuda.Windows" Version="1.9.0" />
+    <PackageReference Include="Whisper.net.Runtime.Vulkan" Version="1.9.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Remove="artifacts\**\*.cs" />
+    <Content Include="installer\wix\assets\PrimeDictate.ico">
+      <Link>PrimeDictate.ico</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>Always</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
+
+</Project>

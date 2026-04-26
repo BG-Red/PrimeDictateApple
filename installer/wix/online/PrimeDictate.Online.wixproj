@@ -1,0 +1,29 @@
+<Project Sdk="WixToolset.Sdk/6.0.0">
+  <PropertyGroup>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <OutputName>PrimeDictate-$(Version)-Windows-Online</OutputName>
+    <InstallerPlatform>x64</InstallerPlatform>
+    <Cultures>en-US</Cultures>
+    <PublishDir Condition="'$(PublishDir)' == ''">$([MSBuild]::NormalizePath('$(MSBuildThisFileDirectory)', '..\..\..\artifacts\win-x64\publish'))</PublishDir>
+    <ProductVersion>$(Version).0</ProductVersion>
+    <DefineConstants>ProductVersion=$(ProductVersion)</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <BindPath Include="$(PublishDir)" BindName="publish" />
+    <BindPath Include="$([MSBuild]::NormalizePath('$(MSBuildThisFileDirectory)', '..\assets'))" BindName="assets" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\shared\AppPayload.wxs" Link="AppPayload.wxs" />
+    <Compile Include="..\shared\Branding.wxs" Link="Branding.wxs" />
+    <Compile Include="..\shared\StartMenuShortcuts.wxs" Link="StartMenuShortcuts.wxs" />
+    <Compile Include="OnlineExtras.wxs" />
+    <Compile Include="Package.wxs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="WixToolset.UI.wixext" Version="6.0.0" />
+    <PackageReference Include="WixToolset.Util.wixext" Version="6.0.0" />
+  </ItemGroup>
+</Project>

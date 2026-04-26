@@ -1,0 +1,30 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Fragment>
+    <ComponentGroup Id="OnlineScriptComponents" Directory="INSTALLFOLDER">
+      <Component Id="DownloadModelCmdComponent" Guid="C9D0E1F2-A3B4-4657-89AB-CDEF01234567">
+        <File Id="DownloadModelCmd" Source="!(bindpath.assets)\DownloadModel.cmd" KeyPath="yes" />
+        <File Id="RunDownloadModelElevatedCmd" Source="!(bindpath.assets)\RunDownloadModelElevated.cmd" />
+      </Component>
+    </ComponentGroup>
+  </Fragment>
+
+  <!--
+    Deferred WixQuietExec runs elevated (Impersonate=no) so curl can write under Program Files.
+    Output is captured in the MSI log (use msiexec /l*v). No extra window (by design of WixQuietExec).
+  -->
+  <Fragment>
+    <SetProperty
+        Id="RunDownloadModel"
+        Value="&quot;[System64Folder]cmd.exe&quot; /c CALL &quot;[INSTALLFOLDER]DownloadModel.cmd&quot;"
+        Before="RunDownloadModel"
+        Sequence="execute"
+        Condition="NOT REMOVE" />
+    <CustomAction
+        Id="RunDownloadModel"
+        BinaryRef="Wix4UtilCA_X64"
+        DllEntry="WixQuietExec"
+        Execute="deferred"
+        Impersonate="no"
+        Return="check" />
+  </Fragment>
+</Wix>

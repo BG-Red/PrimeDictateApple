@@ -1,0 +1,30 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <!-- Shared Start Menu shortcut for both online and offline installers. -->
+  <Fragment>
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="ProgramShortcutFolder" Name="PrimeDictate" />
+    </StandardDirectory>
+  </Fragment>
+
+  <Fragment>
+    <ComponentGroup Id="StartMenuShortcutComponents" Directory="ProgramShortcutFolder">
+      <Component Id="StartMenuShortcuts" Guid="E2F3A4B5-C6D7-4890-ABCD-EF0123456789">
+        <Shortcut
+            Id="ScPrimeDictate"
+            Name="PrimeDictate"
+            Target="[INSTALLFOLDER]PrimeDictate.exe"
+            WorkingDirectory="INSTALLFOLDER"
+            Icon="AppIcon"
+            Description="Local Whisper dictation with live dashboard and color-coded tray state." />
+        <RemoveFolder Id="RemoveProgramShortcutFolder" On="uninstall" />
+        <RegistryValue
+            Root="HKCU"
+            Key="Software\PrimeDictate"
+            Name="StartMenuShortcuts"
+            Type="integer"
+            Value="1"
+            KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+  </Fragment>
+</Wix>

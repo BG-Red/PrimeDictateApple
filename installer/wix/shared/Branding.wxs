@@ -1,0 +1,9 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <!-- Shared ARP branding metadata for both online/offline MSI packages. -->
+  <Fragment>
+    <Icon Id="AppIcon" SourceFile="!(bindpath.assets)\PrimeDictate.ico" />
+    <Property Id="ARPPRODUCTICON" Value="AppIcon" />
+    <Property Id="ARPCOMMENTS" Value="Local Whisper dictation with global hotkey capture and live transcription updates." />
+    <Property Id="ARPCONTACT" Value="PrimeDictate contributors" />
+  </Fragment>
+</Wix>

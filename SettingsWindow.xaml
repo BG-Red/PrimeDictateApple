@@ -1,0 +1,105 @@
+<Window x:Class="PrimeDictate.SettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:ClassModifier="internal"
+        Title="PrimeDictate setup"
+        Width="470"
+        Height="520"
+        WindowStartupLocation="CenterScreen"
+        ResizeMode="NoResize"
+        PreviewKeyDown="OnWindowPreviewKeyDown">
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <TextBlock Name="HeaderText"
+                   FontSize="16"
+                   FontWeight="SemiBold"
+                   Text="PrimeDictate setup" />
+
+        <StackPanel Grid.Row="1" Margin="0,14,0,0">
+            <TextBlock Text="Dictation hotkey" FontWeight="SemiBold" />
+            <StackPanel Margin="0,6,0,0" Orientation="Horizontal">
+                <CheckBox Name="CtrlModifierCheckBox" Content="Ctrl" Margin="0,0,10,0" Checked="OnHotkeyBuilderChanged" Unchecked="OnHotkeyBuilderChanged" />
+                <CheckBox Name="ShiftModifierCheckBox" Content="Shift" Margin="0,0,10,0" Checked="OnHotkeyBuilderChanged" Unchecked="OnHotkeyBuilderChanged" />
+                <CheckBox Name="AltModifierCheckBox" Content="Alt" Checked="OnHotkeyBuilderChanged" Unchecked="OnHotkeyBuilderChanged" />
+                <ComboBox Name="PrimaryKeyComboBox"
+                          Width="130"
+                          Margin="16,0,0,0"
+                          VerticalAlignment="Center"
+                          SelectionChanged="OnHotkeyBuilderChanged" />
+            </StackPanel>
+            <DockPanel Margin="0,6,0,0">
+                <Button Name="CaptureButton"
+                        Width="130"
+                        Content="Capture hotkey"
+                        Click="OnCaptureHotkeyClick" />
+                <TextBlock Name="HotkeyValueText"
+                           Margin="12,5,0,0"
+                           VerticalAlignment="Center" />
+            </DockPanel>
+            <TextBlock Name="HotkeyHintText"
+                       Margin="0,6,0,0"
+                       Foreground="#555"
+                       Text="Use Ctrl/Shift/Alt + key. Three-key combos like Ctrl+Shift+Space are supported." />
+        </StackPanel>
+
+        <StackPanel Grid.Row="2" Margin="0,16,0,0">
+            <TextBlock Text="Tray icon click behavior" FontWeight="SemiBold" />
+            <ComboBox Name="TrayBehaviorComboBox"
+                      Margin="0,6,0,0"
+                      SelectedIndex="1">
+                <ComboBoxItem Content="Single click opens Workspace" Tag="Single" />
+                <ComboBoxItem Content="Double click opens Workspace" Tag="Double" />
+            </ComboBox>
+        </StackPanel>
+
+        <StackPanel Grid.Row="3" Margin="0,16,0,0">
+            <TextBlock Text="Whisper model file path (optional override)" FontWeight="SemiBold" />
+            <DockPanel Margin="0,6,0,0">
+                <Button Width="92"
+                        Content="Browse"
+                        Click="OnBrowseModelPathClick" />
+                <TextBox Name="ModelPathTextBox"
+                         Margin="10,0,0,0"
+                         VerticalContentAlignment="Center"
+                         ToolTip="Leave empty to use default model discovery." />
+            </DockPanel>
+        </StackPanel>
+
+        <StackPanel Grid.Row="4" Margin="0,16,0,0">
+            <TextBlock Text="Microphone capture behavior" FontWeight="SemiBold" />
+            <CheckBox Name="ExclusiveMicAccessCheckBox"
+                      Margin="0,6,0,0"
+                      Content="Request exclusive mic access while dictating (best effort; falls back to shared mode if unsupported)." />
+        </StackPanel>
+
+        <TextBlock Grid.Row="5"
+                   Margin="0,18,0,0"
+                   Foreground="#666"
+                   TextWrapping="Wrap"
+                   Text="Press your hotkey globally to start/stop dictation. Open Workspace from the tray to browse thread logs." />
+
+        <StackPanel Grid.Row="6"
+                    Margin="0,14,0,0"
+                    Orientation="Horizontal"
+                    HorizontalAlignment="Right">
+            <Button Name="CancelButton"
+                    Width="92"
+                    Margin="0,0,10,0"
+                    Content="Cancel"
+                    Click="OnCancelClick" />
+            <Button Width="92"
+                    IsDefault="True"
+                    Content="Save"
+                    Click="OnSaveClick" />
+        </StackPanel>
+    </Grid>
+</Window>
