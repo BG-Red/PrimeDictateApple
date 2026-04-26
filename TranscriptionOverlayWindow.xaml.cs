@@ -13,11 +13,11 @@ internal partial class TranscriptionOverlayWindow : Window
 {
     private const double FullOverlayWidth = 500;
     private const double FullOverlayHeight = 400;
-    private const double CompactOverlaySize = 108;
+    private const double CompactOverlaySize = 140;
     private const double FullMicSize = 80;
     private const double CompactMicSize = 46;
     private const double FullGlowSize = 250;
-    private const double CompactGlowSize = 120;
+    private const double CompactGlowSize = 140;
     private const double ParticleCanvasFallbackHeight = 120;
     private const int MaxDisplayedTranscriptChars = 900;
     private const int WaveformBarCount = 90;
@@ -286,8 +286,8 @@ internal partial class TranscriptionOverlayWindow : Window
         
         // Base scales when silent
         double minScale = 1.0;
-        double scaleMultiplier1 = this.overlayMode == OverlayMode.CompactMicrophone ? 2.2 : 4.0;
-        double scaleMultiplier2 = this.overlayMode == OverlayMode.CompactMicrophone ? 4.2 : 8.0;
+        double scaleMultiplier1 = this.overlayMode == OverlayMode.CompactMicrophone ? 1.0 : 4.0;
+        double scaleMultiplier2 = this.overlayMode == OverlayMode.CompactMicrophone ? 1.8 : 8.0;
         double targetScale1 = minScale + (this.currentSmoothedRms * scaleMultiplier1);
         double targetScale2 = minScale + (this.currentSmoothedRms * scaleMultiplier2);
         

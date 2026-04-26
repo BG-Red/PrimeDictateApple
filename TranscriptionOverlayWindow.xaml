@@ -67,7 +67,7 @@
                 </Grid.RowDefinitions>
 
                 <!-- Visualization -->
-                <Grid Name="VisualizationPanel" Grid.Row="0" VerticalAlignment="Center" HorizontalAlignment="Stretch" ClipToBounds="True" Margin="-16,0,-16,0">
+                <Grid Name="VisualizationPanel" Grid.Row="0" VerticalAlignment="Stretch" HorizontalAlignment="Stretch" ClipToBounds="True" Margin="-16,0,-16,0">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="*" />
@@ -93,40 +93,42 @@
                             </Ellipse.Fill>
                         </Ellipse>
 
-                        <!-- Sonar Ring 2 -->
-                        <Ellipse Name="Ring2" Width="80" Height="80" Stroke="#007ACC" StrokeThickness="1" Opacity="0">
-                            <Ellipse.RenderTransform>
-                                <ScaleTransform x:Name="Ring2Scale" CenterX="40" CenterY="40" />
-                            </Ellipse.RenderTransform>
-                        </Ellipse>
-                        <!-- Sonar Ring 1 -->
-                        <Ellipse Name="Ring1" Width="80" Height="80" Stroke="#007ACC" StrokeThickness="2" Opacity="0">
-                            <Ellipse.RenderTransform>
-                                <ScaleTransform x:Name="Ring1Scale" CenterX="40" CenterY="40" />
-                            </Ellipse.RenderTransform>
-                        </Ellipse>
-                        
-                        <!-- Microphone Background -->
-                        <Ellipse Name="MicCircle" Width="80" Height="80" Fill="#1A1F26" Stroke="#007ACC" StrokeThickness="2" />
-                        <TextBlock Name="MicGlyph" Text="🎙" FontFamily="Segoe UI Emoji" FontSize="34" Foreground="#007ACC" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,0,0,4" />
-                        <Border Name="CompactStatusBadge"
-                                Width="18"
-                                Height="18"
-                                Background="#0D1117"
-                                BorderBrush="#2B3440"
-                                BorderThickness="1"
-                                CornerRadius="9"
-                                HorizontalAlignment="Right"
-                                VerticalAlignment="Bottom"
-                                Margin="0,0,-4,-2"
-                                Visibility="Collapsed">
-                            <Ellipse Name="CompactStateDot"
-                                     Width="8"
-                                     Height="8"
-                                     Fill="#20A470"
-                                     HorizontalAlignment="Center"
-                                     VerticalAlignment="Center" />
-                        </Border>
+                        <Grid HorizontalAlignment="Center" VerticalAlignment="Center">
+                            <!-- Sonar Ring 2 -->
+                            <Ellipse Name="Ring2" Width="80" Height="80" Stroke="#007ACC" StrokeThickness="1" Opacity="0">
+                                <Ellipse.RenderTransform>
+                                    <ScaleTransform x:Name="Ring2Scale" CenterX="40" CenterY="40" />
+                                </Ellipse.RenderTransform>
+                            </Ellipse>
+                            <!-- Sonar Ring 1 -->
+                            <Ellipse Name="Ring1" Width="80" Height="80" Stroke="#007ACC" StrokeThickness="2" Opacity="0">
+                                <Ellipse.RenderTransform>
+                                    <ScaleTransform x:Name="Ring1Scale" CenterX="40" CenterY="40" />
+                                </Ellipse.RenderTransform>
+                            </Ellipse>
+                            
+                            <!-- Microphone Background -->
+                            <Ellipse Name="MicCircle" Width="80" Height="80" Fill="#1A1F26" Stroke="#007ACC" StrokeThickness="2" />
+                            <TextBlock Name="MicGlyph" Text="🎙" FontFamily="Segoe UI Emoji" FontSize="34" Foreground="#007ACC" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,0,0,4" />
+                            <Border Name="CompactStatusBadge"
+                                    Width="18"
+                                    Height="18"
+                                    Background="#0D1117"
+                                    BorderBrush="#2B3440"
+                                    BorderThickness="1"
+                                    CornerRadius="9"
+                                    HorizontalAlignment="Right"
+                                    VerticalAlignment="Bottom"
+                                    Margin="0,0,-4,-2"
+                                    Visibility="Collapsed">
+                                <Ellipse Name="CompactStateDot"
+                                         Width="8"
+                                         Height="8"
+                                         Fill="#20A470"
+                                         HorizontalAlignment="Center"
+                                         VerticalAlignment="Center" />
+                            </Border>
+                        </Grid>
                     </Grid>
                 </Grid>
 
