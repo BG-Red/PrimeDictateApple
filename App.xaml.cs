@@ -63,6 +63,7 @@ public partial class App : System.Windows.Application
         this.dictationController.ThreadStarted += this.OnThreadStarted;
         this.dictationController.ThreadCompleted += this.OnThreadCompleted;
         this.dictationController.ThreadTranscriptUpdated += this.OnThreadTranscriptUpdated;
+        this.dictationController.AudioLevelUpdated += this.OnAudioLevelUpdated;
         this.hotkeyListener = new GlobalHotkeyListener(this.dictationController.ToggleRecordingAsync, configured);
         this.hookTask = this.hotkeyListener.RunAsync();
         AppLog.EntryWritten += this.OnAppLogEntryWritten;
@@ -95,6 +96,7 @@ public partial class App : System.Windows.Application
             this.dictationController.ThreadStarted -= this.OnThreadStarted;
             this.dictationController.ThreadCompleted -= this.OnThreadCompleted;
             this.dictationController.ThreadTranscriptUpdated -= this.OnThreadTranscriptUpdated;
+            this.dictationController.AudioLevelUpdated -= this.OnAudioLevelUpdated;
             await this.dictationController.DisposeAsync().ConfigureAwait(false);
         }
 
@@ -156,6 +158,8 @@ public partial class App : System.Windows.Application
         return icon;
     }
 
+    internal void ShowSettings() => this.ShowSettingsWindow(false);
+
     private void ShowSettingsWindow(bool isFirstRun)
     {
         if (this.settings is null)
@@ -201,6 +205,7 @@ public partial class App : System.Windows.Application
         {
             this.isRecording = isRecording;
             this.UpdateTrayState();
+            this.UpdateTranscriptionOverlay();
         });
 
         if (isRecording)
@@ -284,15 +289,33 @@ public partial class App : System.Windows.Application
         {
             this.transcriptionOverlayWindow = new TranscriptionOverlayWindow();
             this.transcriptionOverlayWindow.Closed += (_, _) => this.transcriptionOverlayWindow = null;
+            if (this.settings.IsOverlaySticky)
+            {
+                this.transcriptionOverlayWindow.SetSticky(true);
+            }
             this.transcriptionOverlayWindow.Show();
         }
 
         this.UpdateTranscriptionOverlay();
     }
 
+    internal void SaveStickyState(bool isSticky)
+    {
+        if (this.settings is not null && this.settingsStore is not null)
+        {
+            this.settings.IsOverlaySticky = isSticky;
+            this.settingsStore.Save(this.settings);
+        }
+    }
+
     private void HideTranscriptionOverlay()
     {
         if (this.transcriptionOverlayWindow is null)
+        {
+            return;
+        }
+
+        if (this.settings?.IsOverlaySticky == true)
         {
             return;
         }
@@ -309,7 +332,12 @@ public partial class App : System.Windows.Application
             return;
         }
 
-        this.transcriptionOverlayWindow.SetPlacement(this.settings.OverlayPlacement);
+        if (!this.isRecording && !this.isProcessing)
+        {
+            this.transcriptionOverlayWindow.SetReadyState();
+            return;
+        }
+
         this.transcriptionOverlayWindow.UpdateTranscript(this.overlayTranscript, this.isProcessing);
     }
 
@@ -346,8 +374,23 @@ public partial class App : System.Windows.Application
         this.Dispatcher.Invoke(() =>
         {
             this.workspaceViewModel.MarkThreadCompleted(threadId);
-            this.HideTranscriptionOverlay();
+
+            if (this.settings?.IsOverlaySticky == true)
+            {
+                this.overlayTranscript = string.Empty;
+                this.isProcessing = false;
+                this.UpdateTranscriptionOverlay();
+            }
+            else
+            {
+                this.HideTranscriptionOverlay();
+            }
         });
+    }
+
+    private void OnAudioLevelUpdated(double rms)
+    {
+        this.transcriptionOverlayWindow?.UpdateAudioLevel(rms);
     }
 
     private void OnThreadTranscriptUpdated(Guid threadId, string transcript)

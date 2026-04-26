@@ -69,6 +69,16 @@ Outputs: `artifacts\installer\`. Version comes from `Directory.Build.props`.
 
 See [installer/README.md](installer/README.md) for details. Redistribute the GGML model only in compliance with its license/terms.
 
+### GitHub Releases and Webflow links
+
+Tagged pushes that match `vX.Y.Z` keep the workflow artifact upload for CI debugging and also publish installer assets to the matching GitHub Release. If the Release does not exist yet, the workflow creates it first. Release downloads come from **GitHub Releases**, not the temporary workflow artifact ZIP.
+
+- Release page: `https://github.com/CakeRepository/PrimeDictate/releases/tag/vX.Y.Z`
+- Direct MSI asset: `https://github.com/CakeRepository/PrimeDictate/releases/download/vX.Y.Z/PrimeDictate-Setup-vX.Y.Z.msi`
+- GitHub latest redirect pattern: `https://github.com/CakeRepository/PrimeDictate/releases/latest/download/PrimeDictate-Setup-vX.Y.Z.msi`
+
+Because the MSI filename includes the tag, Webflow should either link to the release page or update the direct MSI URL each time a new release tag is published.
+
 ### Tray shell and first-run setup
 
 PrimeDictate now runs as a **WPF tray app** (no console window in normal use):

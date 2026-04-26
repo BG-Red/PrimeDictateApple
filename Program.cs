@@ -103,6 +103,7 @@ internal sealed class DictationController : IAsyncDisposable
     public event Action<Guid>? ThreadStarted;
     public event Action<Guid>? ThreadCompleted;
     public event Action<Guid, string>? ThreadTranscriptUpdated;
+    public event Action<double>? AudioLevelUpdated;
 
     public DictationController(
         bool exclusiveMicAccessWhileDictating = false,
@@ -112,6 +113,7 @@ internal sealed class DictationController : IAsyncDisposable
         this.exclusiveMicAccessWhileDictating = exclusiveMicAccessWhileDictating;
         this.autoCommitSilenceDelay = NormalizeSilenceDelay(autoCommitSilenceDelay ?? TimeSpan.FromSeconds(3));
         this.sendEnterAfterCommit = sendEnterAfterCommit;
+        this.recorder.AudioLevelUpdated += rms => this.AudioLevelUpdated?.Invoke(rms);
     }
 
     public bool IsRecording => this.recorder.IsRecording;
@@ -507,6 +509,8 @@ internal sealed class DefaultMicrophoneRecorder : IDisposable
         }
     }
 
+    public event Action<double>? AudioLevelUpdated;
+
     public void Start(bool exclusiveMode)
     {
         lock (this.syncRoot)
@@ -603,6 +607,42 @@ internal sealed class DefaultMicrophoneRecorder : IDisposable
         lock (this.syncRoot)
         {
             this.captureBuffer?.Write(args.Buffer, 0, args.BytesRecorded);
+
+            if (this.captureFormat is not null && this.AudioLevelUpdated is not null)
+            {
+                double rms = 0;
+                var bytes = args.Buffer;
+                var recorded = args.BytesRecorded;
+
+                if (this.captureFormat.Encoding == WaveFormatEncoding.IeeeFloat)
+                {
+                    var floatCount = recorded / 4;
+                    double sumSquares = 0;
+                    for (var i = 0; i < floatCount; i++)
+                    {
+                        var sample = BitConverter.ToSingle(bytes, i * 4);
+                        sumSquares += sample * sample;
+                    }
+                    rms = floatCount > 0 ? Math.Sqrt(sumSquares / floatCount) : 0;
+                }
+                else if (this.captureFormat.Encoding == WaveFormatEncoding.Pcm && this.captureFormat.BitsPerSample == 16)
+                {
+                    var sampleCount = recorded / 2;
+                    double sumSquares = 0;
+                    for (var i = 0; i < sampleCount; i++)
+                    {
+                        var sample = BitConverter.ToInt16(bytes, i * 2);
+                        var normalized = sample / 32768.0;
+                        sumSquares += normalized * normalized;
+                    }
+                    rms = sampleCount > 0 ? Math.Sqrt(sumSquares / sampleCount) : 0;
+                }
+
+                if (rms > 0)
+                {
+                    this.AudioLevelUpdated.Invoke(rms);
+                }
+            }
         }
     }
 

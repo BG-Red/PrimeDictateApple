@@ -31,7 +31,6 @@ internal partial class SettingsWindow : Window
         this.ModelPathTextBox.Text = settings.ModelPath ?? string.Empty;
         this.ExclusiveMicAccessCheckBox.IsChecked = settings.ExclusiveMicAccessWhileDictating;
         this.AutoCommitSilenceSecondsTextBox.Text = settings.AutoCommitSilenceSeconds.ToString(CultureInfo.InvariantCulture);
-        this.SelectOverlayPlacement(settings.OverlayPlacement);
         this.SendEnterAfterCommitCheckBox.IsChecked = settings.SendEnterAfterCommit;
     }
 
@@ -101,7 +100,6 @@ internal partial class SettingsWindow : Window
             return;
         }
 
-        var overlayPlacement = this.GetSelectedOverlayPlacement();
         var modelPath = this.ModelPathTextBox.Text.Trim();
         var settings = new AppSettings
         {
@@ -113,7 +111,6 @@ internal partial class SettingsWindow : Window
             ModelPath = string.IsNullOrWhiteSpace(modelPath) ? null : modelPath,
             ExclusiveMicAccessWhileDictating = this.ExclusiveMicAccessCheckBox.IsChecked == true,
             AutoCommitSilenceSeconds = autoCommitSeconds,
-            OverlayPlacement = overlayPlacement,
             SendEnterAfterCommit = this.SendEnterAfterCommitCheckBox.IsChecked == true
         };
 
@@ -196,28 +193,6 @@ internal partial class SettingsWindow : Window
         this.ShiftModifierCheckBox.IsChecked = hotkey.Shift;
         this.AltModifierCheckBox.IsChecked = hotkey.Alt;
         this.PrimaryKeyComboBox.SelectedItem = PrimaryKeyOptions.FirstOrDefault(option => option.KeyCode == hotkey.KeyCode);
-    }
-
-    private DictationOverlayPlacement GetSelectedOverlayPlacement()
-    {
-        var selected = (this.OverlayPlacementComboBox.SelectedItem as ComboBoxItem)?.Tag?.ToString();
-        return Enum.TryParse<DictationOverlayPlacement>(selected, out var placement)
-            ? placement
-            : DictationOverlayPlacement.LowerRight;
-    }
-
-    private void SelectOverlayPlacement(DictationOverlayPlacement placement)
-    {
-        foreach (var item in this.OverlayPlacementComboBox.Items.OfType<ComboBoxItem>())
-        {
-            if (string.Equals(item.Tag?.ToString(), placement.ToString(), StringComparison.Ordinal))
-            {
-                this.OverlayPlacementComboBox.SelectedItem = item;
-                return;
-            }
-        }
-
-        this.OverlayPlacementComboBox.SelectedIndex = 0;
     }
 
     private static IReadOnlyList<HotkeyPrimaryOption> BuildPrimaryKeyOptions()

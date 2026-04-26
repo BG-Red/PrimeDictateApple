@@ -92,17 +92,6 @@
                          VerticalContentAlignment="Center" />
                 <TextBlock VerticalAlignment="Center" Text="seconds of silence" />
             </StackPanel>
-            <StackPanel Margin="0,8,0,0" Orientation="Horizontal">
-                <TextBlock Width="108" VerticalAlignment="Center" Text="Overlay position" />
-                <ComboBox Name="OverlayPlacementComboBox"
-                          Width="180"
-                          SelectedValuePath="Tag">
-                    <ComboBoxItem Content="Lower right" Tag="LowerRight" />
-                    <ComboBoxItem Content="Lower left" Tag="LowerLeft" />
-                    <ComboBoxItem Content="Upper right" Tag="UpperRight" />
-                    <ComboBoxItem Content="Upper left" Tag="UpperLeft" />
-                </ComboBox>
-            </StackPanel>
             <CheckBox Name="SendEnterAfterCommitCheckBox"
                       Margin="0,10,0,0"
                       Content="Coding mode: send Enter after committing transcript." />

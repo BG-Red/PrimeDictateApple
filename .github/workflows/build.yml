@@ -8,12 +8,16 @@ on:
     branches: [main, master]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   dotnet:
     runs-on: windows-latest
     env:
       PUBLISH_DIR: ${{ github.workspace }}\artifacts\win-x64\publish
       INSTALLER_DIR: ${{ github.workspace }}\artifacts\installer
+      RELEASE_ASSET_DIR: ${{ runner.temp }}\prime-dictate-release-assets
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
@@ -29,7 +33,16 @@ jobs:
             throw "Directory.Build.props is missing a Version value."
           }
 
-          if ($env:GITHUB_REF -like "refs/tags/v*") {
+          $releaseTag = ""
+          $isSemverTag = "false"
+
+          if ($env:GITHUB_REF -match '^refs/tags/(v\d+\.\d+\.\d+)$') {
+            $releaseTag = $Matches[1]
+            $packageVersion = $releaseTag.Substring(1)
+            $informationalVersion = $packageVersion
+            $isSemverTag = "true"
+          }
+          elseif ($env:GITHUB_REF -like "refs/tags/v*") {
             $packageVersion = $env:GITHUB_REF.Substring("refs/tags/v".Length)
             $informationalVersion = $packageVersion
           }
@@ -51,6 +64,8 @@ jobs:
           "assembly_version=$assemblyVersion" >> $env:GITHUB_OUTPUT
           "file_version=$fileVersion" >> $env:GITHUB_OUTPUT
           "informational_version=$informationalVersion" >> $env:GITHUB_OUTPUT
+          "release_tag=$releaseTag" >> $env:GITHUB_OUTPUT
+          "is_semver_tag=$isSemverTag" >> $env:GITHUB_OUTPUT
 
       - name: Restore + build
         run: >
@@ -176,3 +191,50 @@ jobs:
           path: |
             artifacts/win-x64/publish/**
             artifacts/installer/*.msi
+
+      - name: Prepare GitHub release assets
+        if: github.event_name == 'push' && steps.version.outputs.is_semver_tag == 'true'
+        id: release_assets
+        shell: pwsh
+        run: |
+          $tag = "${{ steps.version.outputs.release_tag }}"
+          $assetDir = $env:RELEASE_ASSET_DIR
+          $expectedOnlineMsi = Join-Path $env:INSTALLER_DIR "PrimeDictate-${{ steps.version.outputs.base_version }}-Windows-Online.msi"
+
+          Remove-Item -Path $assetDir -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path $assetDir | Out-Null
+
+          if (-not (Test-Path $expectedOnlineMsi)) {
+            throw "Expected online MSI not found for release upload: $expectedOnlineMsi"
+          }
+
+          Copy-Item -Path $expectedOnlineMsi -Destination (Join-Path $assetDir "PrimeDictate-Setup-$tag.msi") -Force
+          "asset_dir=$assetDir" >> $env:GITHUB_OUTPUT
+
+      - name: Publish installers to GitHub Release
+        if: github.event_name == 'push' && steps.version.outputs.is_semver_tag == 'true'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "${{ steps.version.outputs.release_tag }}"
+          $repo = "${{ github.repository }}"
+          $assetDir = "${{ steps.release_assets.outputs.asset_dir }}"
+          $assets = Get-ChildItem -Path $assetDir -File | Sort-Object Name | Select-Object -ExpandProperty FullName
+
+          if (-not $assets -or $assets.Count -eq 0) {
+            throw "No prepared release assets found under $assetDir"
+          }
+
+          & gh release view $tag --repo $repo *> $null
+          if ($LASTEXITCODE -ne 0) {
+            & gh release create $tag --repo $repo --title $tag --generate-notes
+            if ($LASTEXITCODE -ne 0) {
+              throw "Failed to create GitHub release for tag $tag"
+            }
+          }
+
+          & gh release upload $tag $assets --repo $repo --clobber
+          if ($LASTEXITCODE -ne 0) {
+            throw "Failed to upload release assets for tag $tag"
+          }
