@@ -100,6 +100,7 @@ internal sealed class DictationWorkspaceViewModel : INotifyPropertyChanged
     private const int MaxThreads = 100;
 
     private DictationThreadViewModel? selectedThread;
+    private string runtimeStatusText = "Backend: Whisper | Model: Default";
 
     public DictationWorkspaceViewModel()
     {
@@ -112,6 +113,21 @@ internal sealed class DictationWorkspaceViewModel : INotifyPropertyChanged
     public ObservableCollection<DictationThreadViewModel> Threads { get; }
 
     public ObservableCollection<AppLogEntry> GlobalEntries { get; }
+
+    public string RuntimeStatusText
+    {
+        get => this.runtimeStatusText;
+        private set
+        {
+            if (string.Equals(value, this.runtimeStatusText, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            this.runtimeStatusText = value;
+            this.OnPropertyChanged();
+        }
+    }
 
     public DictationThreadViewModel? SelectedThread
     {
@@ -157,6 +173,11 @@ internal sealed class DictationWorkspaceViewModel : INotifyPropertyChanged
     {
         var thread = this.GetThread(threadId);
         thread?.MarkCompleted();
+    }
+
+    public void SetRuntimeStatus(string backendLabel, string modelLabel)
+    {
+        this.RuntimeStatusText = $"Backend: {backendLabel} | Model: {modelLabel}";
     }
 
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null)

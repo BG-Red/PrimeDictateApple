@@ -112,11 +112,15 @@ internal sealed class DictationController : IAsyncDisposable
     public DictationController(
         bool exclusiveMicAccessWhileDictating = false,
         TimeSpan? autoCommitSilenceDelay = null,
-        bool sendEnterAfterCommit = false)
+        bool sendEnterAfterCommit = false,
+        TranscriptionBackendKind transcriptionBackend = TranscriptionBackendKind.Whisper,
+        string? selectedModelId = null,
+        string? modelPath = null)
     {
         this.exclusiveMicAccessWhileDictating = exclusiveMicAccessWhileDictating;
         this.autoCommitSilenceDelay = NormalizeSilenceDelay(autoCommitSilenceDelay ?? TimeSpan.FromSeconds(3));
         this.sendEnterAfterCommit = sendEnterAfterCommit;
+        this.textInjectionPipeline.UpdateConfiguration(transcriptionBackend, selectedModelId, modelPath);
         this.recorder.AudioLevelUpdated += rms => this.AudioLevelUpdated?.Invoke(rms);
     }
 
@@ -132,7 +136,10 @@ internal sealed class DictationController : IAsyncDisposable
     public void UpdateCaptureOptions(
         bool exclusiveMicAccessWhileDictating,
         TimeSpan autoCommitSilenceDelay,
-        bool sendEnterAfterCommit)
+        bool sendEnterAfterCommit,
+        TranscriptionBackendKind transcriptionBackend,
+        string? selectedModelId,
+        string? modelPath)
     {
         lock (this.configSync)
         {
@@ -140,6 +147,8 @@ internal sealed class DictationController : IAsyncDisposable
             this.autoCommitSilenceDelay = NormalizeSilenceDelay(autoCommitSilenceDelay);
             this.sendEnterAfterCommit = sendEnterAfterCommit;
         }
+
+        this.textInjectionPipeline.UpdateConfiguration(transcriptionBackend, selectedModelId, modelPath);
     }
 
     public async Task ToggleRecordingAsync()

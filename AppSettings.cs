@@ -13,6 +13,11 @@ internal sealed class AppSettings
 
     public TrayClickBehavior TrayClickBehavior { get; set; } = TrayClickBehavior.DoubleClickOpensSettings;
 
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public TranscriptionBackendKind TranscriptionBackend { get; set; } = TranscriptionBackendKind.Whisper;
+
+    public string? SelectedModelId { get; set; }
+
     public string? ModelPath { get; set; }
 
     public bool ExclusiveMicAccessWhileDictating { get; set; }
@@ -28,6 +33,8 @@ internal sealed class AppSettings
         FirstRunCompleted = false,
         DictationHotkey = HotkeyGesture.Default,
         TrayClickBehavior = TrayClickBehavior.DoubleClickOpensSettings,
+        TranscriptionBackend = TranscriptionBackendKind.Whisper,
+        SelectedModelId = null,
         ModelPath = null,
         ExclusiveMicAccessWhileDictating = false,
         AutoCommitSilenceSeconds = 3,
@@ -40,6 +47,13 @@ internal enum TrayClickBehavior
 {
     SingleClickOpensSettings = 0,
     DoubleClickOpensSettings = 1
+}
+
+internal enum TranscriptionBackendKind
+{
+    Whisper = 0,
+    Parakeet = 1,
+    Moonshine = 2
 }
 
 internal sealed class HotkeyGesture

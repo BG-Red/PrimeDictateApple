@@ -1,4 +1,5 @@
 using System.Drawing;
+using System.IO;
 using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Media.Imaging;
@@ -53,6 +54,7 @@ public partial class App : System.Windows.Application
         this.settings = this.settingsStore.LoadOrDefault();
         this.historyViewModel.Load(this.historyStore.Load());
         this.ApplyModelPathOverride(this.settings);
+        this.UpdateRuntimeStatusUi();
 
         var configured = this.settings.DictationHotkey.IsValid(out _)
             ? this.settings.DictationHotkey
@@ -62,7 +64,10 @@ public partial class App : System.Windows.Application
         this.dictationController = new DictationController(
             this.settings.ExclusiveMicAccessWhileDictating,
             TimeSpan.FromSeconds(this.settings.AutoCommitSilenceSeconds),
-            this.settings.SendEnterAfterCommit);
+            this.settings.SendEnterAfterCommit,
+            this.settings.TranscriptionBackend,
+            this.settings.SelectedModelId,
+            this.settings.ModelPath);
         this.dictationController.RecordingStateChanged += this.OnRecordingStateChanged;
         this.dictationController.ProcessingStateChanged += this.OnProcessingStateChanged;
         this.dictationController.ThreadStarted += this.OnThreadStarted;
@@ -220,12 +225,16 @@ public partial class App : System.Windows.Application
 
         this.settings = newSettings;
         this.settingsStore.Save(newSettings);
+        this.ApplyModelPathOverride(newSettings);
+        this.UpdateRuntimeStatusUi();
         this.hotkeyListener.UpdateHotkey(newSettings.DictationHotkey);
         this.dictationController?.UpdateCaptureOptions(
             newSettings.ExclusiveMicAccessWhileDictating,
             TimeSpan.FromSeconds(newSettings.AutoCommitSilenceSeconds),
-            newSettings.SendEnterAfterCommit);
-        this.ApplyModelPathOverride(newSettings);
+            newSettings.SendEnterAfterCommit,
+            newSettings.TranscriptionBackend,
+            newSettings.SelectedModelId,
+            newSettings.ModelPath);
         this.UpdateTranscriptionOverlay();
     }
 
@@ -275,21 +284,22 @@ public partial class App : System.Windows.Application
             this.notifyIcon.Text = trayState switch
             {
                 TrayVisualState.Recording => this.GetRecordingTooltipText(),
-                TrayVisualState.Processing => "PrimeDictate - Processing transcript",
+                TrayVisualState.Processing => $"PrimeDictate - Processing [{this.GetActiveBackendLabel()}]",
                 TrayVisualState.Error => "PrimeDictate - Error",
-                _ => "PrimeDictate - Ready"
+                _ => $"PrimeDictate - Ready [{this.GetActiveBackendLabel()}]"
             };
         }
     }
 
     private string GetRecordingTooltipText()
     {
+        var backendLabel = this.GetActiveBackendLabel();
         var mode = this.dictationController?.ActiveMicAccessModeLabel ?? "Unknown";
         return mode switch
         {
-            "Exclusive" => "PrimeDictate - Listening [Exclusive]",
-            "Shared" => "PrimeDictate - Listening [Shared]",
-            _ => "PrimeDictate - Listening"
+            "Exclusive" => $"PrimeDictate - Listening [{backendLabel}, Exclusive]",
+            "Shared" => $"PrimeDictate - Listening [{backendLabel}, Shared]",
+            _ => $"PrimeDictate - Listening [{backendLabel}]"
         };
     }
 
@@ -379,11 +389,11 @@ public partial class App : System.Windows.Application
 
         if (!this.isRecording && !this.isProcessing)
         {
-            this.transcriptionOverlayWindow.SetReadyState();
+            this.transcriptionOverlayWindow.SetReadyState(this.GetActiveBackendLabel());
             return;
         }
 
-        this.transcriptionOverlayWindow.UpdateTranscript(this.overlayTranscript, this.isProcessing);
+        this.transcriptionOverlayWindow.UpdateTranscript(this.overlayTranscript, this.isProcessing, this.GetActiveBackendLabel());
     }
 
     private void OnAppLogEntryWritten(AppLogEntry entry)
@@ -475,13 +485,108 @@ public partial class App : System.Windows.Application
 
     private void ApplyModelPathOverride(AppSettings configuredSettings)
     {
-        if (string.IsNullOrWhiteSpace(configuredSettings.ModelPath))
+        if (configuredSettings.TranscriptionBackend != TranscriptionBackendKind.Whisper ||
+            string.IsNullOrWhiteSpace(configuredSettings.ModelPath))
         {
             Environment.SetEnvironmentVariable("PRIME_DICTATE_MODEL", null);
             return;
         }
 
         Environment.SetEnvironmentVariable("PRIME_DICTATE_MODEL", configuredSettings.ModelPath);
+    }
+
+    private void UpdateRuntimeStatusUi()
+    {
+        if (this.settings is null)
+        {
+            return;
+        }
+
+        this.workspaceViewModel.SetRuntimeStatus(this.GetActiveBackendLabel(), this.GetActiveModelLabel());
+        this.UpdateTrayState();
+        this.UpdateTranscriptionOverlay();
+    }
+
+    private string GetActiveBackendLabel() => this.settings?.TranscriptionBackend switch
+    {
+        TranscriptionBackendKind.Moonshine => "Moonshine",
+        TranscriptionBackendKind.Parakeet => "Parakeet",
+        _ => "Whisper"
+    };
+
+    private string GetActiveModelLabel()
+    {
+        if (this.settings is null)
+        {
+            return "Default";
+        }
+
+        return this.settings.TranscriptionBackend switch
+        {
+            TranscriptionBackendKind.Moonshine => GetMoonshineModelLabel(this.settings),
+            TranscriptionBackendKind.Parakeet => GetParakeetModelLabel(this.settings),
+            _ => GetWhisperModelLabel(this.settings)
+        };
+    }
+
+    private static string GetWhisperModelLabel(AppSettings settings)
+    {
+        if (WhisperModelCatalog.TryGetById(settings.SelectedModelId, out var option))
+        {
+            return option.DisplayName;
+        }
+
+        var optionFromPath = WhisperModelCatalog.TryGetByPath(settings.ModelPath);
+        if (optionFromPath is not null)
+        {
+            return optionFromPath.DisplayName;
+        }
+
+        return string.IsNullOrWhiteSpace(settings.ModelPath)
+            ? "Default"
+            : Path.GetFileName(settings.ModelPath);
+    }
+
+    private static string GetParakeetModelLabel(AppSettings settings)
+    {
+        if (ParakeetModelCatalog.TryGetById(settings.SelectedModelId, out var option))
+        {
+            return option.DisplayName;
+        }
+
+        var optionFromPath = ParakeetModelCatalog.TryGetByPath(settings.ModelPath);
+        if (optionFromPath is not null)
+        {
+            return optionFromPath.DisplayName;
+        }
+
+        if (string.IsNullOrWhiteSpace(settings.ModelPath))
+        {
+            return "Default";
+        }
+
+        return Path.GetFileName(settings.ModelPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+    }
+
+    private static string GetMoonshineModelLabel(AppSettings settings)
+    {
+        if (MoonshineModelCatalog.TryGetById(settings.SelectedModelId, out var option))
+        {
+            return option.DisplayName;
+        }
+
+        var optionFromPath = MoonshineModelCatalog.TryGetByPath(settings.ModelPath);
+        if (optionFromPath is not null)
+        {
+            return optionFromPath.DisplayName;
+        }
+
+        if (string.IsNullOrWhiteSpace(settings.ModelPath))
+        {
+            return "Default";
+        }
+
+        return Path.GetFileName(settings.ModelPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
     }
 
     private BitmapSource CreateWindowIcon() =>

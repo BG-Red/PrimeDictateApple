@@ -3,17 +3,13 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:ClassModifier="internal"
         Title="PrimeDictate setup"
-        Width="470"
-        Height="620"
+        Width="660"
+        Height="760"
         WindowStartupLocation="CenterScreen"
-        ResizeMode="NoResize"
+        ResizeMode="CanMinimize"
         PreviewKeyDown="OnWindowPreviewKeyDown">
     <Grid Margin="20">
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
@@ -21,89 +17,286 @@
         </Grid.RowDefinitions>
 
         <TextBlock Name="HeaderText"
-                   FontSize="16"
+                   FontSize="18"
                    FontWeight="SemiBold"
-                   Text="PrimeDictate setup" />
+                   Text="PrimeDictate settings" />
 
-        <StackPanel Grid.Row="1" Margin="0,14,0,0">
-            <TextBlock Text="Dictation hotkey" FontWeight="SemiBold" />
-            <StackPanel Margin="0,6,0,0" Orientation="Horizontal">
-                <CheckBox Name="CtrlModifierCheckBox" Content="Ctrl" Margin="0,0,10,0" Checked="OnHotkeyBuilderChanged" Unchecked="OnHotkeyBuilderChanged" />
-                <CheckBox Name="ShiftModifierCheckBox" Content="Shift" Margin="0,0,10,0" Checked="OnHotkeyBuilderChanged" Unchecked="OnHotkeyBuilderChanged" />
-                <CheckBox Name="AltModifierCheckBox" Content="Alt" Checked="OnHotkeyBuilderChanged" Unchecked="OnHotkeyBuilderChanged" />
-                <ComboBox Name="PrimaryKeyComboBox"
-                          Width="130"
-                          Margin="16,0,0,0"
-                          VerticalAlignment="Center"
-                          SelectionChanged="OnHotkeyBuilderChanged" />
-            </StackPanel>
-            <DockPanel Margin="0,6,0,0">
-                <Button Name="CaptureButton"
-                        Width="130"
-                        Content="Capture hotkey"
-                        Click="OnCaptureHotkeyClick" />
-                <TextBlock Name="HotkeyValueText"
-                           Margin="12,5,0,0"
-                           VerticalAlignment="Center" />
-            </DockPanel>
-            <TextBlock Name="HotkeyHintText"
-                       Margin="0,6,0,0"
-                       Foreground="#555"
-                       Text="Use Ctrl/Shift/Alt + key. Three-key combos like Ctrl+Shift+Space are supported." />
-        </StackPanel>
-
-        <StackPanel Grid.Row="2" Margin="0,16,0,0">
-            <TextBlock Text="Tray icon click behavior" FontWeight="SemiBold" />
-            <ComboBox Name="TrayBehaviorComboBox"
-                      Margin="0,6,0,0"
-                      SelectedIndex="1">
-                <ComboBoxItem Content="Single click opens Workspace" Tag="Single" />
-                <ComboBoxItem Content="Double click opens Workspace" Tag="Double" />
-            </ComboBox>
-        </StackPanel>
-
-        <StackPanel Grid.Row="3" Margin="0,16,0,0">
-            <TextBlock Text="Whisper model file path (optional override)" FontWeight="SemiBold" />
-            <DockPanel Margin="0,6,0,0">
-                <Button Width="92"
-                        Content="Browse"
-                        Click="OnBrowseModelPathClick" />
-                <TextBox Name="ModelPathTextBox"
-                         Margin="10,0,0,0"
-                         VerticalContentAlignment="Center"
-                         ToolTip="Leave empty to use default model discovery." />
-            </DockPanel>
-        </StackPanel>
-
-        <StackPanel Grid.Row="4" Margin="0,16,0,0">
-            <TextBlock Text="Microphone capture behavior" FontWeight="SemiBold" />
-            <CheckBox Name="ExclusiveMicAccessCheckBox"
-                      Margin="0,6,0,0"
-                      Content="Request exclusive mic access while dictating (best effort; falls back to shared mode if unsupported)." />
-        </StackPanel>
-
-        <StackPanel Grid.Row="5" Margin="0,16,0,0">
-            <TextBlock Text="Live preview and auto-commit" FontWeight="SemiBold" />
-            <StackPanel Margin="0,6,0,0" Orientation="Horizontal">
-                <TextBlock VerticalAlignment="Center" Text="Commit after" />
-                <TextBox Name="AutoCommitSilenceSecondsTextBox"
-                         Width="48"
-                         Margin="8,0,8,0"
-                         VerticalContentAlignment="Center" />
-                <TextBlock VerticalAlignment="Center" Text="seconds of silence" />
-            </StackPanel>
-            <CheckBox Name="SendEnterAfterCommitCheckBox"
-                      Margin="0,10,0,0"
-                      Content="Coding mode: send Enter after committing transcript." />
-        </StackPanel>
-
-        <TextBlock Grid.Row="6"
-                   Margin="0,18,0,0"
-                   Foreground="#666"
+        <TextBlock Name="HeaderSubtextText"
+                   Grid.Row="1"
+                   Margin="0,8,0,0"
+                   Foreground="#555"
                    TextWrapping="Wrap"
-                   Text="Press your hotkey globally to start dictation. Live preview appears in the overlay and commits after silence or when you press the hotkey again." />
+                   Text="Manage your local model, hotkey, and dictation behavior." />
 
-        <Grid Grid.Row="7" Margin="0,14,0,0">
+        <TabControl Name="SetupTabControl"
+                    Grid.Row="2"
+                    Margin="0,16,0,0"
+                    SelectionChanged="OnSetupTabSelectionChanged">
+            <TabItem Name="WelcomeTab" Header="Overview">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="14">
+                        <Border Padding="14"
+                                Background="#F4F8FF"
+                                BorderBrush="#D7E6FF"
+                                BorderThickness="1"
+                                CornerRadius="10">
+                            <StackPanel>
+                                <TextBlock FontSize="16"
+                                           FontWeight="SemiBold"
+                                           Text="Built for fast Windows text editing" />
+                                <TextBlock Margin="0,8,0,0"
+                                           Foreground="#444"
+                                           TextWrapping="Wrap"
+                                           Text="PrimeDictate is tuned for dictating into editors, chat apps, documentation tools, terminals, and browser text fields. You pick a local transcription backend and model, set your hotkey, and the app types the final transcript directly into the focused app." />
+                            </StackPanel>
+                        </Border>
+
+                        <TextBlock Margin="0,18,0,0"
+                                   FontSize="15"
+                                   FontWeight="SemiBold"
+                                   Text="Quick setup checklist" />
+
+                        <Border Margin="0,10,0,0"
+                                Padding="12"
+                                Background="#FAFAFA"
+                                BorderBrush="#E1E1E1"
+                                BorderThickness="1"
+                                CornerRadius="8">
+                            <TextBlock TextWrapping="Wrap">
+                                <Run FontWeight="SemiBold" Text="1. Pick a local transcription model" />
+                                <LineBreak />
+                                <Run Text="Use the Model tab to choose Whisper or Parakeet, download a model locally, or browse to one you already have." />
+                            </TextBlock>
+                        </Border>
+
+                        <Border Margin="0,10,0,0"
+                                Padding="12"
+                                Background="#FAFAFA"
+                                BorderBrush="#E1E1E1"
+                                BorderThickness="1"
+                                CornerRadius="8">
+                            <TextBlock TextWrapping="Wrap">
+                                <Run FontWeight="SemiBold" Text="2. Set your dictation hotkey" />
+                                <LineBreak />
+                                <Run Text="PrimeDictate listens globally, so you can start and stop dictation without changing apps." />
+                            </TextBlock>
+                        </Border>
+
+                        <Border Margin="0,10,0,0"
+                                Padding="12"
+                                Background="#FAFAFA"
+                                BorderBrush="#E1E1E1"
+                                BorderThickness="1"
+                                CornerRadius="8">
+                            <TextBlock TextWrapping="Wrap">
+                                <Run FontWeight="SemiBold" Text="3. Tune how commits behave" />
+                                <LineBreak />
+                                <Run Text="Choose silence auto-commit timing, optional coding-mode Enter, and mic capture behavior for your workflow." />
+                            </TextBlock>
+                        </Border>
+
+                        <TextBlock Name="WelcomeFooterText"
+                                   Margin="0,18,0,0"
+                                   Foreground="#555"
+                                   TextWrapping="Wrap"
+                                   Text="You can revisit any of these settings from the tray icon later." />
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
+            <TabItem Name="ModelTab" Header="Model">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="14">
+                        <TextBlock FontSize="15"
+                                    FontWeight="SemiBold"
+                                   Text="Choose a transcription backend and model" />
+                        <TextBlock Margin="0,8,0,0"
+                                   Foreground="#555"
+                                   TextWrapping="Wrap"
+                                   Text="PrimeDictate supports multiple local speech engines. Pick the backend you want to use, then choose the model that fits your Windows workflow and download it locally or browse to an existing install." />
+
+                        <TextBlock Margin="0,14,0,0"
+                                   FontWeight="SemiBold"
+                                   Text="Transcription backend" />
+                        <ComboBox Name="ModelBackendComboBox"
+                                  Margin="0,6,0,0"
+                                  MinHeight="32"
+                                  SelectionChanged="OnModelBackendChanged" />
+                        <TextBlock Name="ModelBackendDescriptionText"
+                                   Margin="0,8,0,0"
+                                   Foreground="#555"
+                                   TextWrapping="Wrap" />
+
+                        <TextBlock Margin="0,14,0,0"
+                                   FontWeight="SemiBold"
+                                   Text="Model" />
+                        <ComboBox Name="ModelChoiceComboBox"
+                                  Margin="0,6,0,0"
+                                  MinHeight="32"
+                                  SelectionChanged="OnModelChoiceChanged" />
+
+                        <Border Margin="0,12,0,0"
+                                Padding="14"
+                                Background="#FAFAFA"
+                                BorderBrush="#E1E1E1"
+                                BorderThickness="1"
+                                CornerRadius="10">
+                            <StackPanel>
+                                <DockPanel LastChildFill="False">
+                                    <TextBlock Name="ModelChoiceTitleText"
+                                               FontSize="15"
+                                               FontWeight="SemiBold" />
+                                    <Border Name="RecommendedBadgeBorder"
+                                            DockPanel.Dock="Right"
+                                            Padding="8,3"
+                                            Background="#DCEBFF"
+                                            CornerRadius="999"
+                                            Visibility="Collapsed">
+                                        <TextBlock Text="Recommended"
+                                                   FontSize="11"
+                                                   FontWeight="SemiBold"
+                                                   Foreground="#1E4E8C" />
+                                    </Border>
+                                </DockPanel>
+
+                                <TextBlock Name="ModelChoiceMetaText"
+                                           Margin="0,8,0,0"
+                                           Foreground="#555" />
+
+                                <TextBlock Name="ModelChoiceDescriptionText"
+                                           Margin="0,8,0,0"
+                                           TextWrapping="Wrap" />
+
+                                <TextBlock Name="ModelChoiceStatusText"
+                                           Margin="0,12,0,0"
+                                           Foreground="#0B5C8E"
+                                           TextWrapping="Wrap" />
+                            </StackPanel>
+                        </Border>
+
+                        <StackPanel Margin="0,12,0,0" Orientation="Horizontal">
+                            <Button Name="DownloadSelectedModelButton"
+                                    Width="140"
+                                    Content="Download model"
+                                    Click="OnDownloadSelectedModelClick" />
+                            <Button Name="CancelModelDownloadButton"
+                                    Width="90"
+                                    Margin="10,0,0,0"
+                                    Content="Cancel"
+                                    Click="OnCancelModelDownloadClick"
+                                    Visibility="Collapsed" />
+                            <Button Name="BrowseModelPathButton"
+                                    Width="120"
+                                    Margin="10,0,0,0"
+                                    Content="Browse..."
+                                    Click="OnBrowseModelPathClick" />
+                        </StackPanel>
+
+                        <ProgressBar Name="ModelDownloadProgressBar"
+                                     Height="14"
+                                     Margin="0,12,0,0"
+                                     Minimum="0"
+                                     Maximum="100"
+                                     Visibility="Collapsed" />
+
+                        <TextBlock Name="ModelDownloadStatusText"
+                                   Margin="0,8,0,0"
+                                   Foreground="#555"
+                                   TextWrapping="Wrap"
+                                   Visibility="Collapsed" />
+
+                        <TextBlock Name="ModelPathLabelText"
+                                   Margin="0,18,0,0"
+                                   FontWeight="SemiBold"
+                                   Text="Resolved model path" />
+                        <TextBox Name="ModelPathTextBox"
+                                  Margin="0,6,0,0"
+                                  TextChanged="OnModelPathTextChanged"
+                                  ToolTip="Use a downloaded model or browse to an existing local model install." />
+                        <TextBlock Name="ModelStorageHintText"
+                                   Margin="0,8,0,0"
+                                   Foreground="#666"
+                                   TextWrapping="Wrap" />
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
+            <TabItem Name="PreferencesTab" Header="Dictation">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="14">
+                        <TextBlock FontSize="15"
+                                   FontWeight="SemiBold"
+                                   Text="Hotkey and dictation behavior" />
+
+                        <StackPanel Margin="0,16,0,0">
+                            <TextBlock Text="Dictation hotkey" FontWeight="SemiBold" />
+                            <StackPanel Margin="0,6,0,0" Orientation="Horizontal">
+                                <CheckBox Name="CtrlModifierCheckBox" Content="Ctrl" Margin="0,0,10,0" Checked="OnHotkeyBuilderChanged" Unchecked="OnHotkeyBuilderChanged" />
+                                <CheckBox Name="ShiftModifierCheckBox" Content="Shift" Margin="0,0,10,0" Checked="OnHotkeyBuilderChanged" Unchecked="OnHotkeyBuilderChanged" />
+                                <CheckBox Name="AltModifierCheckBox" Content="Alt" Checked="OnHotkeyBuilderChanged" Unchecked="OnHotkeyBuilderChanged" />
+                                <ComboBox Name="PrimaryKeyComboBox"
+                                          Width="140"
+                                          Margin="16,0,0,0"
+                                          VerticalAlignment="Center"
+                                          SelectionChanged="OnHotkeyBuilderChanged" />
+                            </StackPanel>
+                            <DockPanel Margin="0,6,0,0">
+                                <Button Name="CaptureButton"
+                                        Width="130"
+                                        Content="Capture hotkey"
+                                        Click="OnCaptureHotkeyClick" />
+                                <TextBlock Name="HotkeyValueText"
+                                           Margin="12,5,0,0"
+                                           VerticalAlignment="Center" />
+                            </DockPanel>
+                            <TextBlock Name="HotkeyHintText"
+                                       Margin="0,6,0,0"
+                                       Foreground="#555"
+                                       Text="Use Ctrl/Shift/Alt + key. Three-key combos like Ctrl+Shift+Space are supported." />
+                        </StackPanel>
+
+                        <StackPanel Margin="0,18,0,0">
+                            <TextBlock Text="Tray icon click behavior" FontWeight="SemiBold" />
+                            <ComboBox Name="TrayBehaviorComboBox"
+                                      Margin="0,6,0,0"
+                                      SelectedIndex="1">
+                                <ComboBoxItem Content="Single click opens Workspace" Tag="Single" />
+                                <ComboBoxItem Content="Double click opens Workspace" Tag="Double" />
+                            </ComboBox>
+                        </StackPanel>
+
+                        <StackPanel Margin="0,18,0,0">
+                            <TextBlock Text="Microphone capture behavior" FontWeight="SemiBold" />
+                            <CheckBox Name="ExclusiveMicAccessCheckBox"
+                                      Margin="0,6,0,0"
+                                      Content="Request exclusive mic access while dictating (best effort; falls back to shared mode if unsupported)." />
+                        </StackPanel>
+
+                        <StackPanel Margin="0,18,0,0">
+                            <TextBlock Text="Live preview and auto-commit" FontWeight="SemiBold" />
+                            <StackPanel Margin="0,6,0,0" Orientation="Horizontal">
+                                <TextBlock VerticalAlignment="Center" Text="Commit after" />
+                                <TextBox Name="AutoCommitSilenceSecondsTextBox"
+                                         Width="48"
+                                         Margin="8,0,8,0"
+                                         VerticalContentAlignment="Center" />
+                                <TextBlock VerticalAlignment="Center" Text="seconds of silence" />
+                            </StackPanel>
+                            <CheckBox Name="SendEnterAfterCommitCheckBox"
+                                      Margin="0,10,0,0"
+                                      Content="Coding mode: send Enter after committing transcript." />
+                        </StackPanel>
+
+                        <TextBlock Margin="0,18,0,0"
+                                   Foreground="#666"
+                                   TextWrapping="Wrap"
+                                   Text="Press your hotkey globally to start dictation. Live preview stays in the overlay, then the final transcript is typed into the focused Windows app after silence or when you stop manually." />
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+        </TabControl>
+
+        <Grid Grid.Row="3" Margin="0,16,0,0">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="*" />
@@ -116,12 +309,19 @@
                     Click="OnHistoryClick" />
 
             <StackPanel Grid.Column="2" Orientation="Horizontal">
+                <Button Name="BackButton"
+                        Width="92"
+                        Margin="0,0,10,0"
+                        Content="Back"
+                        Click="OnBackClick"
+                        Visibility="Collapsed" />
                 <Button Name="CancelButton"
                         Width="92"
                         Margin="0,0,10,0"
                         Content="Cancel"
                         Click="OnCancelClick" />
-                <Button Width="92"
+                <Button Name="SaveButton"
+                        Width="92"
                         IsDefault="True"
                         Content="Save"
                         Click="OnSaveClick" />

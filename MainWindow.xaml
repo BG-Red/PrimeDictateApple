@@ -21,11 +21,15 @@
         </Grid.ColumnDefinitions>
 
         <DockPanel Grid.Row="0" Grid.ColumnSpan="3">
-            <TextBlock DockPanel.Dock="Left"
-                       VerticalAlignment="Center"
-                       FontSize="17"
-                       FontWeight="SemiBold"
-                       Text="PrimeDictate Workspace" />
+            <StackPanel DockPanel.Dock="Left">
+                <TextBlock VerticalAlignment="Center"
+                           FontSize="17"
+                           FontWeight="SemiBold"
+                           Text="PrimeDictate Workspace" />
+                <TextBlock Margin="0,4,0,0"
+                           Foreground="#555"
+                           Text="{Binding RuntimeStatusText}" />
+            </StackPanel>
             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
                 <Button Width="88"
                         Margin="0,0,8,0"

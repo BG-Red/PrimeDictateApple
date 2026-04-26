@@ -149,9 +149,9 @@ internal partial class TranscriptionOverlayWindow : Window
         this.PinButton.IsChecked = isSticky;
     }
 
-    public void SetReadyState()
+    public void SetReadyState(string backendLabel)
     {
-        this.HeaderText.Text = "Ready";
+        this.HeaderText.Text = $"Ready [{backendLabel}]";
         this.StateDot.Fill = ReadyBrush;
         this.TranscriptText.Text = "Waiting for hotkey...";
         this.TimerText.Text = "00:00";
@@ -247,9 +247,11 @@ internal partial class TranscriptionOverlayWindow : Window
         }
     }
 
-    public void UpdateTranscript(string transcript, bool isProcessing)
+    public void UpdateTranscript(string transcript, bool isProcessing, string backendLabel)
     {
-        this.HeaderText.Text = isProcessing ? "Processing transcript" : "Listening";
+        this.HeaderText.Text = isProcessing
+            ? $"Processing [{backendLabel}]"
+            : $"Listening [{backendLabel}]";
         this.StateDot.Fill = isProcessing ? ReadyBrush : RecordingBrush;
         var displayTranscript = transcript.Trim();
         if (displayTranscript.Length > MaxDisplayedTranscriptChars)
@@ -258,7 +260,7 @@ internal partial class TranscriptionOverlayWindow : Window
         }
 
         this.TranscriptText.Text = string.IsNullOrWhiteSpace(displayTranscript)
-            ? "Listening..."
+            ? $"Listening with {backendLabel}..."
             : displayTranscript;
             
         if (!isProcessing && !this.timer.IsEnabled)
