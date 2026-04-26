@@ -16,7 +16,11 @@ param(
     [ValidateSet("Offline", "Online", "Both")]
     [string] $Installer = "Both",
 
-    [switch] $SkipPublish
+    [switch] $SkipPublish,
+    [string] $PackageVersion,
+    [string] $AssemblyVersion,
+    [string] $FileVersion,
+    [string] $InformationalVersion
 )
 
 Set-StrictMode -Version Latest
@@ -38,10 +42,27 @@ $modelRepoPath = Join-Path $repoRoot "models\ggml-large-v3-turbo.bin"
 $offlineProj = Join-Path $repoRoot "installer\wix\offline\PrimeDictate.Offline.wixproj"
 $onlineProj = Join-Path $repoRoot "installer\wix\online\PrimeDictate.Online.wixproj"
 $outDir = Join-Path $repoRoot "artifacts\installer"
-$version = Get-RepoVersion -RepoRoot $repoRoot
+$version = if ([string]::IsNullOrWhiteSpace($PackageVersion)) { Get-RepoVersion -RepoRoot $repoRoot } else { $PackageVersion }
+$msbuildProps = @()
+if (-not [string]::IsNullOrWhiteSpace($PackageVersion)) {
+    $msbuildProps += "-p:Version=$PackageVersion"
+}
+if (-not [string]::IsNullOrWhiteSpace($AssemblyVersion)) {
+    $msbuildProps += "-p:AssemblyVersion=$AssemblyVersion"
+}
+if (-not [string]::IsNullOrWhiteSpace($FileVersion)) {
+    $msbuildProps += "-p:FileVersion=$FileVersion"
+}
+if (-not [string]::IsNullOrWhiteSpace($InformationalVersion)) {
+    $msbuildProps += "-p:InformationalVersion=$InformationalVersion"
+}
 
 if (-not $SkipPublish) {
-    & (Join-Path $PSScriptRoot "Publish-Windows.ps1")
+    & (Join-Path $PSScriptRoot "Publish-Windows.ps1") `
+        -PackageVersion $PackageVersion `
+        -AssemblyVersion $AssemblyVersion `
+        -FileVersion $FileVersion `
+        -InformationalVersion $InformationalVersion
 }
 
 if (-not (Test-Path (Join-Path $publishDir "PrimeDictate.exe"))) {
@@ -63,7 +84,7 @@ Download once (see README), then re-run. Or build only the online MSI:
     }
     $modelDirFull = (Resolve-Path (Split-Path $modelRepoPath -Parent)).Path
     Write-Host "Building offline MSI..."
-    dotnet build $offlineProj -c Release "-p:PublishDir=$publishDirFull" "-p:ModelSourceDir=$modelDirFull"
+    dotnet build $offlineProj -c Release "-p:PublishDir=$publishDirFull" "-p:ModelSourceDir=$modelDirFull" $msbuildProps
     if ($LASTEXITCODE -ne 0) {
         throw "Offline WiX build failed with exit code $LASTEXITCODE"
     }
@@ -73,7 +94,7 @@ Download once (see README), then re-run. Or build only the online MSI:
 
 if ($Installer -eq "Online" -or $Installer -eq "Both") {
     Write-Host "Building online MSI..."
-    dotnet build $onlineProj -c Release "-p:PublishDir=$publishDirFull"
+    dotnet build $onlineProj -c Release "-p:PublishDir=$publishDirFull" $msbuildProps
     if ($LASTEXITCODE -ne 0) {
         throw "Online WiX build failed with exit code $LASTEXITCODE"
     }

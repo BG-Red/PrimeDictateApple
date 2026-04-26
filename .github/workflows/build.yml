@@ -19,16 +19,64 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "8.0.x"
+      - name: Compute version metadata
+        id: version
+        shell: pwsh
+        run: |
+          [xml]$props = Get-Content ".\Directory.Build.props"
+          $baseVersion = @($props.Project.PropertyGroup | Where-Object { $_.Version } | Select-Object -First 1).Version.Trim()
+          if ([string]::IsNullOrWhiteSpace($baseVersion)) {
+            throw "Directory.Build.props is missing a Version value."
+          }
+
+          if ($env:GITHUB_REF -like "refs/tags/v*") {
+            $packageVersion = $env:GITHUB_REF.Substring("refs/tags/v".Length)
+            $informationalVersion = $packageVersion
+          }
+          else {
+            $packageVersion = "$baseVersion-ci.$env:GITHUB_RUN_NUMBER"
+            $informationalVersion = "$packageVersion+$($env:GITHUB_SHA.Substring(0,7))"
+          }
+
+          $baseParts = $baseVersion.Split(".")
+          if ($baseParts.Length -lt 3) {
+            throw "Base Version must be semver (e.g. 0.1.0). Found: $baseVersion"
+          }
+
+          $assemblyVersion = "$($baseParts[0]).$($baseParts[1]).$($baseParts[2]).0"
+          $fileVersion = "$($baseParts[0]).$($baseParts[1]).$($baseParts[2]).$env:GITHUB_RUN_NUMBER"
+
+          "base_version=$baseVersion" >> $env:GITHUB_OUTPUT
+          "package_version=$packageVersion" >> $env:GITHUB_OUTPUT
+          "assembly_version=$assemblyVersion" >> $env:GITHUB_OUTPUT
+          "file_version=$fileVersion" >> $env:GITHUB_OUTPUT
+          "informational_version=$informationalVersion" >> $env:GITHUB_OUTPUT
+
       - name: Restore + build
-        run: dotnet build -c Release
+        run: >
+          dotnet build -c Release
+          -p:Version=${{ steps.version.outputs.package_version }}
+          -p:AssemblyVersion=${{ steps.version.outputs.assembly_version }}
+          -p:FileVersion=${{ steps.version.outputs.file_version }}
+          -p:InformationalVersion=${{ steps.version.outputs.informational_version }}
 
       - name: Publish (win-x64)
         shell: pwsh
-        run: .\scripts\Publish-Windows.ps1
+        run: >
+          .\scripts\Publish-Windows.ps1
+          -PackageVersion "${{ steps.version.outputs.package_version }}"
+          -AssemblyVersion "${{ steps.version.outputs.assembly_version }}"
+          -FileVersion "${{ steps.version.outputs.file_version }}"
+          -InformationalVersion "${{ steps.version.outputs.informational_version }}"
 
       - name: Build online installer
         shell: pwsh
-        run: .\scripts\Build-Installers.ps1 -Installer Online -SkipPublish
+        run: >
+          .\scripts\Build-Installers.ps1 -Installer Online -SkipPublish
+          -PackageVersion "${{ steps.version.outputs.package_version }}"
+          -AssemblyVersion "${{ steps.version.outputs.assembly_version }}"
+          -FileVersion "${{ steps.version.outputs.file_version }}"
+          -InformationalVersion "${{ steps.version.outputs.informational_version }}"
 
       - name: Install AzureSignTool
         if: github.event_name != 'pull_request'
@@ -88,7 +136,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: prime-dictate-win-x64
+          name: prime-dictate-win-x64-${{ steps.version.outputs.package_version }}
           path: |
             artifacts/win-x64/publish/**
             artifacts/installer/*.msi

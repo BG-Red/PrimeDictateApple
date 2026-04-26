@@ -1,10 +1,47 @@
+# Build outputs
 bin/
 obj/
 artifacts/
-models/*.bin
+release-temp/
 installer/wix/**/bin/
 installer/wix/**/obj/
 installer/trywix/
+
+# Local model artifacts (kept out of public repo)
+models/*.bin
+
+# IDE/editor local state
 .vs/
+.vscode/
+.idea/
+.cursor/*
+!.cursor/skills/
+!.cursor/skills/**
 *.user
 *.suo
+*.userprefs
+
+# OS / temp / logs
+*.tmp
+*.temp
+*.log
+*.cache
+Thumbs.db
+.DS_Store
+
+# Test/coverage outputs
+TestResults/
+coverage/
+*.coverage
+*.coveragexml
+
+# Package / publish artifacts
+*.nupkg
+*.snupkg
+
+# Code signing and secret material
+*.pfx
+*.p12
+*.snk
+.env
+.env.*

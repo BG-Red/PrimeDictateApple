@@ -12,9 +12,9 @@
     <Product>PrimeDictate</Product>
     <AssemblyTitle>PrimeDictate</AssemblyTitle>
     <Description>Windows global hotkey dictation with local Whisper transcription.</Description>
-    <Authors>PrimeDictate contributors</Authors>
-    <Company>PrimeDictate contributors</Company>
-    <Copyright>Copyright © PrimeDictate contributors</Copyright>
+    <Authors>FlowDevs.io</Authors>
+    <Company>FlowDevs.io</Company>
+    <Copyright>Copyright © FlowDevs.io</Copyright>
     <RepositoryType>git</RepositoryType>
     <ApplicationIcon>installer\wix\assets\PrimeDictate.ico</ApplicationIcon>
   </PropertyGroup>

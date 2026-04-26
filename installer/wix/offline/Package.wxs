@@ -3,7 +3,7 @@
   <Package
       Name="PrimeDictate"
       Language="1033"
-      Manufacturer="PrimeDictate contributors"
+      Manufacturer="FlowDevs.io"
       Version="$(var.ProductVersion)"
       UpgradeCode="E1F2A3B4-C5D6-4789-ABCD-EF0123456789"
       InstallerVersion="500"
