@@ -17,7 +17,7 @@ jobs:
     env:
       PUBLISH_DIR: ${{ github.workspace }}\artifacts\win-x64\publish
       INSTALLER_DIR: ${{ github.workspace }}\artifacts\installer
-      RELEASE_ASSET_DIR: ${{ runner.temp }}\prime-dictate-release-assets
+      RELEASE_ASSET_DIR: ${{ github.workspace }}\prime-dictate-release-assets
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
