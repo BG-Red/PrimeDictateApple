@@ -219,6 +219,7 @@ jobs:
           path: |
             artifacts/win-x64/publish/**
             artifacts/installer/*.msi
+            artifacts/installer/*.nupkg
 
       - name: Prepare GitHub release assets
         if: github.event_name == 'push' && steps.version.outputs.is_semver_tag == 'true'
@@ -228,6 +229,7 @@ jobs:
           $tag = "${{ steps.version.outputs.release_tag }}"
           $assetDir = $env:RELEASE_ASSET_DIR
           $expectedOnlineMsi = Join-Path $env:INSTALLER_DIR "PrimeDictate-${{ steps.version.outputs.package_version }}-Windows-Online.msi"
+          $expectedChocolateyNupkg = Join-Path $env:INSTALLER_DIR "primedictate.${{ steps.version.outputs.package_version }}.nupkg"
 
           Remove-Item -Path $assetDir -Recurse -Force -ErrorAction SilentlyContinue
           New-Item -ItemType Directory -Force -Path $assetDir | Out-Null
@@ -235,8 +237,21 @@ jobs:
           if (-not (Test-Path $expectedOnlineMsi)) {
             throw "Expected online MSI not found for release upload: $expectedOnlineMsi"
           }
+          if (-not (Test-Path $expectedChocolateyNupkg)) {
+            throw "Expected Chocolatey package not found for release upload: $expectedChocolateyNupkg"
+          }
 
-          Copy-Item -Path $expectedOnlineMsi -Destination (Join-Path $assetDir "PrimeDictate-Setup-$tag.msi") -Force
+          $releaseMsiPath = Join-Path $assetDir "PrimeDictate-Setup-$tag.msi"
+          $releaseNupkgPath = Join-Path $assetDir "primedictate.${{ steps.version.outputs.package_version }}.nupkg"
+
+          Copy-Item -Path $expectedOnlineMsi -Destination $releaseMsiPath -Force
+          Copy-Item -Path $expectedChocolateyNupkg -Destination $releaseNupkgPath -Force
+
+          $msiHash = (Get-FileHash -Path $releaseMsiPath -Algorithm SHA256).Hash.ToLowerInvariant()
+          $nupkgHash = (Get-FileHash -Path $releaseNupkgPath -Algorithm SHA256).Hash.ToLowerInvariant()
+          Set-Content -Path (Join-Path $assetDir "PrimeDictate-Setup-$tag.msi.sha256") -Value "$msiHash  PrimeDictate-Setup-$tag.msi" -NoNewline
+          Set-Content -Path (Join-Path $assetDir "primedictate.${{ steps.version.outputs.package_version }}.nupkg.sha256") -Value "$nupkgHash  primedictate.${{ steps.version.outputs.package_version }}.nupkg" -NoNewline
+
           "asset_dir=$assetDir" >> $env:GITHUB_OUTPUT
 
       - name: Publish installers to GitHub Release
@@ -265,4 +280,22 @@ jobs:
           & gh release upload $tag $assets --repo $repo --clobber
           if ($LASTEXITCODE -ne 0) {
             throw "Failed to upload release assets for tag $tag"
+          }
+
+      - name: Push Chocolatey package (optional)
+        if: github.event_name == 'push' && steps.version.outputs.is_semver_tag == 'true' && secrets.CHOCO_API_KEY != ''
+        shell: pwsh
+        env:
+          CHOCO_API_KEY: ${{ secrets.CHOCO_API_KEY }}
+          CHOCO_SOURCE_URL: ${{ vars.CHOCO_SOURCE_URL }}
+        run: |
+          $nupkgPath = Join-Path $env:INSTALLER_DIR "primedictate.${{ steps.version.outputs.package_version }}.nupkg"
+          if (-not (Test-Path $nupkgPath)) {
+            throw "Chocolatey package not found for push: $nupkgPath"
+          }
+
+          $sourceUrl = if ([string]::IsNullOrWhiteSpace($env:CHOCO_SOURCE_URL)) { "https://push.chocolatey.org/" } else { $env:CHOCO_SOURCE_URL.Trim() }
+          choco push $nupkgPath --source $sourceUrl --api-key $env:CHOCO_API_KEY --timeout 2700
+          if ($LASTEXITCODE -ne 0) {
+            throw "Chocolatey push failed with exit code $LASTEXITCODE"
           }

@@ -30,6 +30,17 @@ From the repository root:
 
 Outputs are copied to `artifacts\installer\`. Intermediate build outputs live under `installer\wix\online\bin\`.
 
+Release builds also generate a Chocolatey package at `artifacts\installer\primedictate.<version>.nupkg` when `choco.exe` is available.
+
+## Silent install and upgrade
+
+- Install: `msiexec /i PrimeDictate-<version>-Windows-Online.msi /qn /norestart`
+- Upgrade: `msiexec /i PrimeDictate-<version>-Windows-Online.msi REINSTALL=ALL REINSTALLMODE=vomus /qn /norestart`
+- Uninstall: `msiexec /x PrimeDictate-<version>-Windows-Online.msi /qn /norestart`
+- Chocolatey install: `choco install primedictate -y`
+- Chocolatey upgrade: `choco upgrade primedictate -y`
+- Chocolatey uninstall: `choco uninstall primedictate -y`
+
 ## Layout
 
 | Path | Role |

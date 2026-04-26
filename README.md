@@ -149,13 +149,23 @@ See [installer/README.md](installer/README.md) for details. Redistribute the GGM
 
 ### GitHub Releases and Webflow links
 
-Tagged pushes that match `vX.Y.Z` keep the workflow artifact upload for CI debugging and also publish installer assets to the matching GitHub Release. If the Release does not exist yet, the workflow creates it first. Release downloads come from **GitHub Releases**, not the temporary workflow artifact ZIP. If Azure Key Vault signing secrets are unavailable, the release flow still publishes the MSI asset as an unsigned build instead of failing before release upload.
+Tagged pushes that match `vX.Y.Z` keep the workflow artifact upload for CI debugging and also publish installer assets to the matching GitHub Release. If the Release does not exist yet, the workflow creates it first. Release downloads come from **GitHub Releases**, not the temporary workflow artifact ZIP. If Azure Key Vault signing secrets are unavailable, the release flow still publishes assets as unsigned builds instead of failing before release upload.
 
 - Release page: `https://github.com/CakeRepository/PrimeDictate/releases/tag/vX.Y.Z`
 - Direct MSI asset: `https://github.com/CakeRepository/PrimeDictate/releases/download/vX.Y.Z/PrimeDictate-Setup-vX.Y.Z.msi`
 - GitHub latest redirect pattern: `https://github.com/CakeRepository/PrimeDictate/releases/latest/download/PrimeDictate-Setup-vX.Y.Z.msi`
+- Chocolatey package asset: `https://github.com/CakeRepository/PrimeDictate/releases/download/vX.Y.Z/primedictate.X.Y.Z.nupkg`
 
 Because the MSI filename includes the tag, Webflow should either link to the release page or update the direct MSI URL each time a new release tag is published.
+
+### Silent install and update commands (Windows)
+
+- MSI install (silent): `msiexec /i PrimeDictate-Setup-vX.Y.Z.msi /qn /norestart`
+- MSI upgrade (silent): `msiexec /i PrimeDictate-Setup-vX.Y.Z.msi REINSTALL=ALL REINSTALLMODE=vomus /qn /norestart`
+- MSI uninstall (silent): `msiexec /x PrimeDictate-Setup-vX.Y.Z.msi /qn /norestart`
+- Chocolatey install (silent by default): `choco install primedictate -y`
+- Chocolatey upgrade (silent): `choco upgrade primedictate -y`
+- Chocolatey uninstall (silent): `choco uninstall primedictate -y`
 
 ### Tray shell and first-run setup
 

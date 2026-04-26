@@ -52,12 +52,28 @@ function Get-MsiCompatibleVersion {
     return $match.Groups['core'].Value
 }
 
+function Get-ChocoCompatibleVersion {
+    param([string] $Version)
+
+    if ([string]::IsNullOrWhiteSpace($Version)) {
+        throw "Version is required to compute a Chocolatey package version."
+    }
+
+    $normalizedVersion = $Version.Trim()
+    if ($normalizedVersion -match '^\d+\.\d+\.\d+(-[0-9A-Za-z][0-9A-Za-z\.-]*)?$') {
+        return $normalizedVersion
+    }
+
+    return Get-MsiCompatibleVersion -Version $normalizedVersion
+}
+
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 $publishDir = Join-Path $repoRoot "artifacts\win-x64\publish"
 $onlineProj = Join-Path $repoRoot "installer\wix\online\PrimeDictate.Online.wixproj"
 $outDir = Join-Path $repoRoot "artifacts\installer"
 $version = if ([string]::IsNullOrWhiteSpace($PackageVersion)) { Get-RepoVersion -RepoRoot $repoRoot } else { $PackageVersion }
 $msiVersion = Get-MsiCompatibleVersion -Version $version
+$chocoVersion = Get-ChocoCompatibleVersion -Version $version
 $msbuildProps = @()
 if (-not [string]::IsNullOrWhiteSpace($msiVersion)) {
     $msbuildProps += "-p:Version=$msiVersion"
@@ -96,4 +112,40 @@ $builtOnlineMsi = Join-Path $repoRoot "installer\wix\online\bin\Release\PrimeDic
 $publishedOnlineMsi = Join-Path $outDir "PrimeDictate-$version-Windows-Online.msi"
 Copy-Item -Force $builtOnlineMsi $publishedOnlineMsi
 
-Write-Host "Done. MSIs: $outDir"
+Write-Host "Building Chocolatey package..."
+$chocoDir = Join-Path $repoRoot "installer\chocolatey"
+$chocoToolsDir = Join-Path $chocoDir "tools"
+if (-not (Test-Path $chocoToolsDir)) {
+    New-Item -ItemType Directory -Force -Path $chocoToolsDir | Out-Null
+}
+$chocoMsiDest = Join-Path $chocoToolsDir "PrimeDictate-Online.msi"
+
+# Copy the generated MSI into the Chocolatey tools directory
+Copy-Item -Force $publishedOnlineMsi $chocoMsiDest
+
+try {
+    if (Get-Command choco -ErrorAction SilentlyContinue) {
+        $originalLocation = Get-Location
+        try {
+            Set-Location $chocoDir
+            choco pack "primedictate.nuspec" --version $chocoVersion
+            if ($LASTEXITCODE -ne 0) {
+                Write-Warning "Chocolatey pack failed with exit code $LASTEXITCODE"
+            } else {
+                $nupkgFile = Join-Path $chocoDir "primedictate.$chocoVersion.nupkg"
+                if (Test-Path $nupkgFile) {
+                    Copy-Item -Force $nupkgFile $outDir
+                    Write-Host "Chocolatey package copied to $outDir"
+                }
+            }
+        } finally {
+            Set-Location $originalLocation
+        }
+    } else {
+        Write-Warning "choco.exe not found in PATH. Skipping Chocolatey packaging. Tools and MSI are prepared in $chocoDir."
+    }
+} finally {
+    Remove-Item -Path $chocoMsiDest -Force -ErrorAction SilentlyContinue
+}
+
+Write-Host "Done. Artifacts available in: $outDir"

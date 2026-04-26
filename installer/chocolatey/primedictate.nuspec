@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd">
+  <metadata>
+    <id>primedictate</id>
+    <version>0.0.0</version>
+    <title>PrimeDictate</title>
+    <authors>FlowDevs</authors>
+    <projectUrl>https://github.com/FlowDevs/PrimeDictate</projectUrl>
+    <tags>dictation speech-to-text whisper</tags>
+    <summary>PrimeDictate is a fast, local speech-to-text application for Windows.</summary>
+    <description>PrimeDictate uses local Whisper.net models for low-latency, private, and precise dictation directly into any text field on Windows.</description>
+  </metadata>
+  <files>
+    <file src="tools\**" target="tools" />
+  </files>
+</package>

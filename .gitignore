@@ -38,6 +38,7 @@ coverage/
 # Package / publish artifacts
 *.nupkg
 *.snupkg
+installer/chocolatey/tools/*.msi
 
 # Code signing and secret material
 *.pfx
