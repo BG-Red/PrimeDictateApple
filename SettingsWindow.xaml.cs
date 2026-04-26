@@ -338,6 +338,33 @@ internal partial class SettingsWindow : Window
         }
     }
 
+    private async void OnApplyGpuPresetClick(object sender, RoutedEventArgs e)
+    {
+        if (this.modelDownloadCts is not null)
+        {
+            return;
+        }
+
+        var backendChoice = BackendChoices.First(choice => choice.Kind == TranscriptionBackendKind.Whisper);
+        this.suppressBackendChoiceChanged = true;
+        this.ModelBackendComboBox.SelectedItem = backendChoice;
+        this.suppressBackendChoiceChanged = false;
+
+        this.ApplyBackendSelection(TranscriptionBackendKind.Whisper, preferredModelId: "small", configuredModelPath: null);
+        this.ShowModelDownloadMessage("GPU preset selected: Whisper + Small.");
+
+        if (this.ModelChoiceComboBox.SelectedItem is WhisperModelOption option &&
+            WhisperModelCatalog.TryResolveInstalledPath(option, out var installedPath))
+        {
+            this.SetModelPathText(installedPath);
+            this.ShowModelDownloadMessage($"GPU preset ready: using installed {option.DisplayName} model.");
+            this.UpdateModelSelectionUi();
+            return;
+        }
+
+        this.OnDownloadSelectedModelClick(sender, e);
+    }
+
     private async Task DownloadSelectedWhisperModelAsync(CancellationToken cancellationToken)
     {
         if (this.ModelChoiceComboBox.SelectedItem is not WhisperModelOption option)
@@ -881,6 +908,7 @@ internal partial class SettingsWindow : Window
         this.DownloadSelectedModelButton.Content = isInstalled ? "Already installed" : "Download model";
         this.DownloadSelectedModelButton.IsEnabled = !isInstalled && this.modelDownloadCts is null;
         this.BrowseModelPathButton.IsEnabled = this.modelDownloadCts is null;
+        this.ApplyGpuPresetButton.IsEnabled = this.modelDownloadCts is null;
     }
 
     private void UpdateParakeetModelSelectionUi()
@@ -933,6 +961,7 @@ internal partial class SettingsWindow : Window
         this.DownloadSelectedModelButton.Content = isInstalled ? "Already installed" : "Download model";
         this.DownloadSelectedModelButton.IsEnabled = !isInstalled && this.modelDownloadCts is null;
         this.BrowseModelPathButton.IsEnabled = this.modelDownloadCts is null;
+        this.ApplyGpuPresetButton.IsEnabled = this.modelDownloadCts is null;
     }
 
     private void UpdateMoonshineModelSelectionUi()
@@ -985,6 +1014,7 @@ internal partial class SettingsWindow : Window
         this.DownloadSelectedModelButton.Content = isInstalled ? "Already installed" : "Download model";
         this.DownloadSelectedModelButton.IsEnabled = !isInstalled && this.modelDownloadCts is null;
         this.BrowseModelPathButton.IsEnabled = this.modelDownloadCts is null;
+        this.ApplyGpuPresetButton.IsEnabled = this.modelDownloadCts is null;
     }
 
     private bool TryBuildSettings(out AppSettings settings)

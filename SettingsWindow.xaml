@@ -175,8 +175,13 @@
                         </Border>
 
                         <StackPanel Margin="0,12,0,0" Orientation="Horizontal">
+                            <Button Name="ApplyGpuPresetButton"
+                                    Width="130"
+                                    Content="Use GPU preset"
+                                    Click="OnApplyGpuPresetClick" />
                             <Button Name="DownloadSelectedModelButton"
                                     Width="140"
+                                    Margin="10,0,0,0"
                                     Content="Download model"
                                     Click="OnDownloadSelectedModelClick" />
                             <Button Name="CancelModelDownloadButton"
