@@ -8,6 +8,7 @@ internal enum TrayVisualState
 {
     Ready,
     Recording,
+    Processing,
     Error
 }
 
@@ -45,6 +46,7 @@ internal static class AppIconProvider
         {
             TrayVisualState.Ready => Color.FromArgb(34, 122, 255),
             TrayVisualState.Recording => Color.FromArgb(220, 53, 69),
+            TrayVisualState.Processing => Color.FromArgb(32, 164, 112),
             TrayVisualState.Error => Color.FromArgb(245, 184, 0),
             _ => Color.FromArgb(34, 122, 255)
         };

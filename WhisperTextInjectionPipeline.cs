@@ -98,33 +98,22 @@ internal static class PcmWav
 
 /// <summary>
 /// Transcribes with Whisper, then updates the focused control via libuiohook text simulation (no clipboard).
-/// Live dictation re-runs transcription on growing audio and uses backspace + re-type so partial words can correct
-/// as the model sees more context (similar to inline completion).
+/// Target injection is intentionally final-only: partial hypotheses are not typed into editors because repeated
+/// correction loops fight autocomplete, caret movement, and slow input targets.
 /// </summary>
 internal sealed class WhisperTextInjectionPipeline
 {
     private readonly SemaphoreSlim initGate = new(initialCount: 1, maxCount: 1);
-    private readonly object committedSync = new();
     private readonly EventSimulator eventSimulator = new();
     private WhisperModelSession? session;
 
     /// <summary>
-    /// Text we assume is present in the target from this dictation session (after our injections only).
+    /// Full-buffer transcription with no target mutation.
     /// </summary>
-    private string committedTargetText = "";
-
-    public void BeginLiveDictationSession()
-    {
-        lock (this.committedSync)
-        {
-            this.committedTargetText = "";
-        }
-    }
-
-    /// <summary>
-    /// Full-buffer transcription, then sync the target to match (longest common prefix, backspace tail, type suffix).
-    /// </summary>
-    public async ValueTask<string> TranscribeAndSyncToTargetAsync(PcmAudioBuffer audio, CancellationToken cancellationToken = default)
+    public async ValueTask<string> TranscribeAsync(
+        PcmAudioBuffer audio,
+        CancellationToken cancellationToken = default,
+        bool logTranscript = true)
     {
         if (audio.IsEmpty)
         {
@@ -132,16 +121,47 @@ internal sealed class WhisperTextInjectionPipeline
         }
 
         var text = await this.TranscribeToStringAsync(audio, cancellationToken).ConfigureAwait(false);
+        text = text.Trim();
         if (string.IsNullOrWhiteSpace(text))
         {
-            AppLog.Info("Whisper returned no text.");
-            this.SyncCommittedTextToTarget("");
+            if (logTranscript)
+            {
+                AppLog.Info("Whisper returned no text.");
+            }
+
             return string.Empty;
         }
 
-        AppLog.Info($"Transcribed: {text}");
-        this.SyncCommittedTextToTarget(text);
+        if (logTranscript)
+        {
+            AppLog.Info($"Transcribed: {text}");
+        }
+
         return text;
+    }
+
+    public void InjectTextToTarget(string text)
+    {
+        var target = text.Trim();
+        if (target.Length == 0)
+        {
+            return;
+        }
+
+        var textResult = this.eventSimulator.SimulateTextEntry(target);
+        if (textResult != UioHookResult.Success)
+        {
+            throw new InvalidOperationException($"Text injection failed with status {textResult}.");
+        }
+    }
+
+    public void SendEnterToTarget()
+    {
+        var keyResult = this.eventSimulator.SimulateKeyStroke(new[] { KeyCode.VcEnter });
+        if (keyResult != UioHookResult.Success)
+        {
+            throw new InvalidOperationException($"Enter key simulation failed with status {keyResult}.");
+        }
     }
 
     private async Task<string> TranscribeToStringAsync(PcmAudioBuffer audio, CancellationToken cancellationToken)
@@ -160,62 +180,6 @@ internal sealed class WhisperTextInjectionPipeline
         }
 
         return builder.ToString().Trim();
-    }
-
-    private void SyncCommittedTextToTarget(string targetFull)
-    {
-        string current;
-        lock (this.committedSync)
-        {
-            current = this.committedTargetText;
-        }
-
-        var target = targetFull.Trim();
-        if (target == current)
-        {
-            return;
-        }
-
-        var prefixLen = CommonPrefixLength(current, target);
-        var backspaceCount = current.Length - prefixLen;
-        var suffix = target[prefixLen..];
-
-        for (var i = 0; i < backspaceCount; i++)
-        {
-            var keyResult = this.eventSimulator.SimulateKeyStroke(new[] { KeyCode.VcBackspace });
-            if (keyResult != UioHookResult.Success)
-            {
-                throw new InvalidOperationException($"Backspace simulation failed with status {keyResult}.");
-            }
-        }
-
-        if (suffix.Length > 0)
-        {
-            var textResult = this.eventSimulator.SimulateTextEntry(suffix);
-            if (textResult != UioHookResult.Success)
-            {
-                throw new InvalidOperationException($"Text injection failed with status {textResult}.");
-            }
-        }
-
-        lock (this.committedSync)
-        {
-            this.committedTargetText = target;
-        }
-    }
-
-    private static int CommonPrefixLength(string a, string b)
-    {
-        var n = Math.Min(a.Length, b.Length);
-        for (var i = 0; i < n; i++)
-        {
-            if (a[i] != b[i])
-            {
-                return i;
-            }
-        }
-
-        return n;
     }
 
     private async Task<WhisperModelSession> EnsureSessionAsync()

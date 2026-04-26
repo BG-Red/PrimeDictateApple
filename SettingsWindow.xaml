@@ -4,12 +4,13 @@
         x:ClassModifier="internal"
         Title="PrimeDictate setup"
         Width="470"
-        Height="520"
+        Height="620"
         WindowStartupLocation="CenterScreen"
         ResizeMode="NoResize"
         PreviewKeyDown="OnWindowPreviewKeyDown">
     <Grid Margin="20">
         <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
@@ -81,13 +82,39 @@
                       Content="Request exclusive mic access while dictating (best effort; falls back to shared mode if unsupported)." />
         </StackPanel>
 
-        <TextBlock Grid.Row="5"
+        <StackPanel Grid.Row="5" Margin="0,16,0,0">
+            <TextBlock Text="Live preview and auto-commit" FontWeight="SemiBold" />
+            <StackPanel Margin="0,6,0,0" Orientation="Horizontal">
+                <TextBlock VerticalAlignment="Center" Text="Commit after" />
+                <TextBox Name="AutoCommitSilenceSecondsTextBox"
+                         Width="48"
+                         Margin="8,0,8,0"
+                         VerticalContentAlignment="Center" />
+                <TextBlock VerticalAlignment="Center" Text="seconds of silence" />
+            </StackPanel>
+            <StackPanel Margin="0,8,0,0" Orientation="Horizontal">
+                <TextBlock Width="108" VerticalAlignment="Center" Text="Overlay position" />
+                <ComboBox Name="OverlayPlacementComboBox"
+                          Width="180"
+                          SelectedValuePath="Tag">
+                    <ComboBoxItem Content="Lower right" Tag="LowerRight" />
+                    <ComboBoxItem Content="Lower left" Tag="LowerLeft" />
+                    <ComboBoxItem Content="Upper right" Tag="UpperRight" />
+                    <ComboBoxItem Content="Upper left" Tag="UpperLeft" />
+                </ComboBox>
+            </StackPanel>
+            <CheckBox Name="SendEnterAfterCommitCheckBox"
+                      Margin="0,10,0,0"
+                      Content="Coding mode: send Enter after committing transcript." />
+        </StackPanel>
+
+        <TextBlock Grid.Row="6"
                    Margin="0,18,0,0"
                    Foreground="#666"
                    TextWrapping="Wrap"
-                   Text="Press your hotkey globally to start/stop dictation. Open Workspace from the tray to browse thread logs." />
+                   Text="Press your hotkey globally to start dictation. Live preview appears in the overlay and commits after silence or when you press the hotkey again." />
 
-        <StackPanel Grid.Row="6"
+        <StackPanel Grid.Row="7"
                     Margin="0,14,0,0"
                     Orientation="Horizontal"
                     HorizontalAlignment="Right">

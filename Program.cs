@@ -80,25 +80,38 @@ internal sealed class DictationController : IAsyncDisposable
 {
     private static readonly TimeSpan LiveTranscribeInterval = TimeSpan.FromMilliseconds(1_500);
     private static readonly TimeSpan LiveMinAudio = TimeSpan.FromSeconds(0.55);
+    private static readonly TimeSpan SilenceProbeInterval = TimeSpan.FromMilliseconds(500);
+    private static readonly TimeSpan RecentSpeechWindow = TimeSpan.FromMilliseconds(450);
+    private const double SpeechRmsThreshold = 0.01;
 
     private readonly SemaphoreSlim toggleGate = new(initialCount: 1, maxCount: 1);
     private readonly DefaultMicrophoneRecorder recorder = new();
     private readonly WhisperTextInjectionPipeline textInjectionPipeline = new();
     private readonly object configSync = new();
     private bool exclusiveMicAccessWhileDictating;
+    private TimeSpan autoCommitSilenceDelay;
+    private bool sendEnterAfterCommit;
 
-    private CancellationTokenSource? liveTranscriptionCts;
-    private Task? liveTranscriptionTask;
+    private CancellationTokenSource? livePreviewCts;
+    private Task? livePreviewTask;
     private Guid? activeThreadId;
+    private ForegroundInputTarget? activeInputTarget;
+    private int autoCommitRequested;
 
     public event Action<bool>? RecordingStateChanged;
+    public event Action<bool>? ProcessingStateChanged;
     public event Action<Guid>? ThreadStarted;
     public event Action<Guid>? ThreadCompleted;
     public event Action<Guid, string>? ThreadTranscriptUpdated;
 
-    public DictationController(bool exclusiveMicAccessWhileDictating = false)
+    public DictationController(
+        bool exclusiveMicAccessWhileDictating = false,
+        TimeSpan? autoCommitSilenceDelay = null,
+        bool sendEnterAfterCommit = false)
     {
         this.exclusiveMicAccessWhileDictating = exclusiveMicAccessWhileDictating;
+        this.autoCommitSilenceDelay = NormalizeSilenceDelay(autoCommitSilenceDelay ?? TimeSpan.FromSeconds(3));
+        this.sendEnterAfterCommit = sendEnterAfterCommit;
     }
 
     public bool IsRecording => this.recorder.IsRecording;
@@ -110,11 +123,16 @@ internal sealed class DictationController : IAsyncDisposable
         _ => "N/A"
     };
 
-    public void UpdateCaptureOptions(bool exclusiveMicAccessWhileDictating)
+    public void UpdateCaptureOptions(
+        bool exclusiveMicAccessWhileDictating,
+        TimeSpan autoCommitSilenceDelay,
+        bool sendEnterAfterCommit)
     {
         lock (this.configSync)
         {
             this.exclusiveMicAccessWhileDictating = exclusiveMicAccessWhileDictating;
+            this.autoCommitSilenceDelay = NormalizeSilenceDelay(autoCommitSilenceDelay);
+            this.sendEnterAfterCommit = sendEnterAfterCommit;
         }
     }
 
@@ -127,54 +145,30 @@ internal sealed class DictationController : IAsyncDisposable
             if (!this.recorder.IsRecording)
             {
                 bool useExclusiveMicAccess;
+                TimeSpan silenceDelay;
                 lock (this.configSync)
                 {
                     useExclusiveMicAccess = this.exclusiveMicAccessWhileDictating;
+                    silenceDelay = this.autoCommitSilenceDelay;
                 }
 
                 var threadId = Guid.NewGuid();
                 this.activeThreadId = threadId;
+                this.activeInputTarget = ForegroundInputTarget.Capture();
+                Interlocked.Exchange(ref this.autoCommitRequested, 0);
                 this.ThreadStarted?.Invoke(threadId);
-                this.textInjectionPipeline.BeginLiveDictationSession();
-                this.liveTranscriptionCts = new CancellationTokenSource();
-                var liveToken = this.liveTranscriptionCts.Token;
-                this.liveTranscriptionTask = Task.Run(() => this.LiveTranscriptionLoopAsync(liveToken), CancellationToken.None);
                 this.recorder.Start(useExclusiveMicAccess);
-                AppLog.Info($"Recording started (live transcription, mic mode: {this.ActiveMicAccessModeLabel}).", threadId);
+                this.livePreviewCts = new CancellationTokenSource();
+                var liveToken = this.livePreviewCts.Token;
+                this.livePreviewTask = Task.Run(() => this.LivePreviewLoopAsync(liveToken), CancellationToken.None);
+                AppLog.Info(
+                    $"Recording started (live preview, auto-commit after {silenceDelay.TotalSeconds:N0}s silence, mic mode: {this.ActiveMicAccessModeLabel}).",
+                    threadId);
                 this.RecordingStateChanged?.Invoke(true);
                 return;
             }
 
-            this.liveTranscriptionCts?.Cancel();
-            if (this.liveTranscriptionTask is { } liveTask)
-            {
-                try
-                {
-                    await liveTask.ConfigureAwait(false);
-                }
-                catch (Exception ex) when (ex is not OperationCanceledException)
-                {
-                    AppLog.Error($"Live transcription loop failed: {ex.Message}", this.activeThreadId);
-                }
-
-                this.liveTranscriptionTask = null;
-            }
-
-            this.liveTranscriptionCts?.Dispose();
-            this.liveTranscriptionCts = null;
-
-            var audio = await this.recorder.StopAsync().ConfigureAwait(false);
-            AppLog.Info(
-                $"Recording stopped: {audio.Duration.TotalSeconds:N2}s, {audio.Pcm16KhzMono.Length:N0} bytes PCM.",
-                this.activeThreadId);
-            this.RecordingStateChanged?.Invoke(false);
-
-            await this.HandleRecordedAudioAsync(audio).ConfigureAwait(false);
-            if (this.activeThreadId is Guid completedId)
-            {
-                this.ThreadCompleted?.Invoke(completedId);
-                this.activeThreadId = null;
-            }
+            await this.StopAndCommitRecordingCoreAsync("manual stop").ConfigureAwait(false);
         }
         finally
         {
@@ -182,44 +176,48 @@ internal sealed class DictationController : IAsyncDisposable
         }
     }
 
-    private async Task LiveTranscriptionLoopAsync(CancellationToken cancellationToken)
+    private async Task LivePreviewLoopAsync(CancellationToken cancellationToken)
     {
-        var lastCommittedSnapBytes = 0;
+        var lastTranscribedSnapBytes = 0;
+        var lastSpeechUtc = DateTime.UtcNow;
+        var heardSpeech = false;
+        var nextTranscribeAfterUtc = DateTime.MinValue;
 
-        try
+        while (true)
         {
-            while (true)
+            try
             {
-                try
-                {
-                    await Task.Delay(LiveTranscribeInterval, cancellationToken).ConfigureAwait(false);
-                }
-                catch (OperationCanceledException)
-                {
-                    break;
-                }
+                await Task.Delay(SilenceProbeInterval, cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
 
-                if (!this.recorder.TryGetPcm16KhzMonoSnapshot(out var snap) || snap.IsEmpty)
-                {
-                    continue;
-                }
+            if (!this.recorder.TryGetPcm16KhzMonoSnapshot(out var snap) || snap.IsEmpty)
+            {
+                continue;
+            }
 
-                if (snap.Pcm16KhzMono.Length == lastCommittedSnapBytes)
-                {
-                    continue;
-                }
+            var nowUtc = DateTime.UtcNow;
+            if (snap.Duration >= LiveMinAudio && HasRecentSpeech(snap))
+            {
+                heardSpeech = true;
+                lastSpeechUtc = nowUtc;
+            }
 
-                if (snap.Duration < LiveMinAudio)
-                {
-                    continue;
-                }
-
+            if (heardSpeech &&
+                snap.Duration >= LiveMinAudio &&
+                snap.Pcm16KhzMono.Length != lastTranscribedSnapBytes &&
+                nowUtc >= nextTranscribeAfterUtc)
+            {
+                nextTranscribeAfterUtc = nowUtc + LiveTranscribeInterval;
                 try
                 {
                     var transcript = await this.textInjectionPipeline
-                        .TranscribeAndSyncToTargetAsync(snap, cancellationToken)
+                        .TranscribeAsync(snap, cancellationToken, logTranscript: false)
                         .ConfigureAwait(false);
-                    lastCommittedSnapBytes = snap.Pcm16KhzMono.Length;
+                    lastTranscribedSnapBytes = snap.Pcm16KhzMono.Length;
                     if (this.activeThreadId is Guid threadId && !string.IsNullOrWhiteSpace(transcript))
                     {
                         this.ThreadTranscriptUpdated?.Invoke(threadId, transcript);
@@ -231,12 +229,108 @@ internal sealed class DictationController : IAsyncDisposable
                 }
                 catch (Exception ex)
                 {
-                    AppLog.Error($"Live transcription failed: {ex.Message}", this.activeThreadId);
+                    AppLog.Error($"Live preview transcription failed: {ex.Message}", this.activeThreadId);
                 }
             }
+
+            if (!heardSpeech)
+            {
+                continue;
+            }
+
+            TimeSpan silenceDelay;
+            lock (this.configSync)
+            {
+                silenceDelay = this.autoCommitSilenceDelay;
+            }
+
+            if (DateTime.UtcNow - lastSpeechUtc >= silenceDelay)
+            {
+                this.RequestCommitAfterSilence();
+                break;
+            }
         }
-        catch (OperationCanceledException)
+    }
+
+    private void RequestCommitAfterSilence()
+    {
+        if (Interlocked.Exchange(ref this.autoCommitRequested, 1) == 1)
         {
+            return;
+        }
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await this.CommitAfterSilenceAsync().ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                AppLog.Error($"Silence auto-commit failed: {ex.Message}", this.activeThreadId);
+            }
+        });
+    }
+
+    private async Task CommitAfterSilenceAsync()
+    {
+        await this.toggleGate.WaitAsync().ConfigureAwait(false);
+
+        try
+        {
+            if (!this.recorder.IsRecording)
+            {
+                return;
+            }
+
+            AppLog.Info("Auto-commit triggered by silence.", this.activeThreadId);
+            await this.StopAndCommitRecordingCoreAsync("silence auto-commit").ConfigureAwait(false);
+        }
+        finally
+        {
+            this.toggleGate.Release();
+        }
+    }
+
+    private async Task StopAndCommitRecordingCoreAsync(string reason)
+    {
+        this.livePreviewCts?.Cancel();
+        if (this.livePreviewTask is { } liveTask)
+        {
+            try
+            {
+                await liveTask.ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                AppLog.Error($"Live preview loop failed: {ex.Message}", this.activeThreadId);
+            }
+        }
+
+        this.livePreviewCts?.Dispose();
+        this.livePreviewCts = null;
+        this.livePreviewTask = null;
+
+        var audio = await this.recorder.StopAsync().ConfigureAwait(false);
+        AppLog.Info(
+            $"Recording stopped ({reason}): {audio.Duration.TotalSeconds:N2}s, {audio.Pcm16KhzMono.Length:N0} bytes PCM.",
+            this.activeThreadId);
+        this.RecordingStateChanged?.Invoke(false);
+        this.ProcessingStateChanged?.Invoke(true);
+
+        try
+        {
+            await this.HandleRecordedAudioAsync(audio).ConfigureAwait(false);
+            if (this.activeThreadId is Guid completedId)
+            {
+                this.ThreadCompleted?.Invoke(completedId);
+            }
+        }
+        finally
+        {
+            this.ProcessingStateChanged?.Invoke(false);
+            this.activeThreadId = null;
+            this.activeInputTarget = null;
         }
     }
 
@@ -250,23 +344,24 @@ internal sealed class DictationController : IAsyncDisposable
             {
                 if (this.recorder.IsRecording)
                 {
-                    this.liveTranscriptionCts?.Cancel();
-                    if (this.liveTranscriptionTask is { } t)
+                    this.livePreviewCts?.Cancel();
+                    if (this.livePreviewTask is { } liveTask)
                     {
                         try
                         {
-                            await t.ConfigureAwait(false);
+                            await liveTask.ConfigureAwait(false);
                         }
                         catch
                         {
                         }
                     }
 
-                    this.liveTranscriptionCts?.Dispose();
-                    this.liveTranscriptionCts = null;
-                    this.liveTranscriptionTask = null;
+                    this.livePreviewCts?.Dispose();
+                    this.livePreviewCts = null;
+                    this.livePreviewTask = null;
                     _ = await this.recorder.StopAsync().ConfigureAwait(false);
                     this.RecordingStateChanged?.Invoke(false);
+                    this.ProcessingStateChanged?.Invoke(false);
                 }
 
                 this.recorder.Dispose();
@@ -293,17 +388,86 @@ internal sealed class DictationController : IAsyncDisposable
 
         try
         {
-            var finalTranscript = await this.textInjectionPipeline.TranscribeAndSyncToTargetAsync(audio, CancellationToken.None)
+            var finalTranscript = await this.textInjectionPipeline.TranscribeAsync(audio, CancellationToken.None)
                 .ConfigureAwait(false);
             if (this.activeThreadId is Guid threadId && !string.IsNullOrWhiteSpace(finalTranscript))
             {
                 this.ThreadTranscriptUpdated?.Invoke(threadId, finalTranscript);
+            }
+
+            if (string.IsNullOrWhiteSpace(finalTranscript))
+            {
+                return;
+            }
+
+            var target = this.activeInputTarget;
+            if (target is not null && !target.IsStillForeground())
+            {
+                AppLog.Error(
+                    $"Focused window changed before transcript typing; skipped injection for {target.DisplayName}.",
+                    this.activeThreadId);
+                return;
+            }
+
+            this.textInjectionPipeline.InjectTextToTarget(finalTranscript);
+            AppLog.Info("Transcript typed into target.", this.activeThreadId);
+
+            bool shouldSendEnter;
+            lock (this.configSync)
+            {
+                shouldSendEnter = this.sendEnterAfterCommit;
+            }
+
+            if (shouldSendEnter)
+            {
+                this.textInjectionPipeline.SendEnterToTarget();
+                AppLog.Info("Enter key sent after transcript commit.", this.activeThreadId);
             }
         }
         catch (Exception ex)
         {
             AppLog.Error($"Transcription or text injection failed: {ex.Message}", this.activeThreadId);
         }
+    }
+
+    private static TimeSpan NormalizeSilenceDelay(TimeSpan delay)
+    {
+        if (delay < TimeSpan.FromSeconds(1))
+        {
+            return TimeSpan.FromSeconds(1);
+        }
+
+        if (delay > TimeSpan.FromSeconds(30))
+        {
+            return TimeSpan.FromSeconds(30);
+        }
+
+        return delay;
+    }
+
+    private static bool HasRecentSpeech(PcmAudioBuffer audio)
+    {
+        if (audio.BitsPerSample != 16 || audio.Channels != 1 || audio.Pcm16KhzMono.Length < 2)
+        {
+            return true;
+        }
+
+        var totalSamples = audio.Pcm16KhzMono.Length / 2;
+        var samplesToInspect = Math.Min(
+            totalSamples,
+            Math.Max(1, (int)(audio.SampleRate * RecentSpeechWindow.TotalSeconds)));
+        var startSample = totalSamples - samplesToInspect;
+        long sumSquares = 0;
+
+        for (var sample = startSample; sample < totalSamples; sample++)
+        {
+            var offset = sample * 2;
+            var value = BitConverter.ToInt16(audio.Pcm16KhzMono, offset);
+            sumSquares += (long)value * value;
+        }
+
+        var rms = Math.Sqrt((double)sumSquares / samplesToInspect) / short.MaxValue;
+        return rms >= SpeechRmsThreshold;
     }
 }
 

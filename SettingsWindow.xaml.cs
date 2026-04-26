@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -29,6 +30,9 @@ internal partial class SettingsWindow : Window
         this.TrayBehaviorComboBox.SelectedIndex = settings.TrayClickBehavior == TrayClickBehavior.SingleClickOpensSettings ? 0 : 1;
         this.ModelPathTextBox.Text = settings.ModelPath ?? string.Empty;
         this.ExclusiveMicAccessCheckBox.IsChecked = settings.ExclusiveMicAccessWhileDictating;
+        this.AutoCommitSilenceSecondsTextBox.Text = settings.AutoCommitSilenceSeconds.ToString(CultureInfo.InvariantCulture);
+        this.SelectOverlayPlacement(settings.OverlayPlacement);
+        this.SendEnterAfterCommitCheckBox.IsChecked = settings.SendEnterAfterCommit;
     }
 
     internal event Action<AppSettings>? SettingsSaved;
@@ -81,6 +85,23 @@ internal partial class SettingsWindow : Window
         this.currentHotkey = candidate;
 
         var selectedBehavior = ((ComboBoxItem)this.TrayBehaviorComboBox.SelectedItem).Tag?.ToString();
+        if (!int.TryParse(
+                this.AutoCommitSilenceSecondsTextBox.Text.Trim(),
+                NumberStyles.Integer,
+                CultureInfo.InvariantCulture,
+                out var autoCommitSeconds) ||
+            autoCommitSeconds is < 1 or > 30)
+        {
+            System.Windows.MessageBox.Show(
+                this,
+                "Auto-commit silence must be a whole number from 1 to 30 seconds.",
+                "Invalid auto-commit delay",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+            return;
+        }
+
+        var overlayPlacement = this.GetSelectedOverlayPlacement();
         var modelPath = this.ModelPathTextBox.Text.Trim();
         var settings = new AppSettings
         {
@@ -90,7 +111,10 @@ internal partial class SettingsWindow : Window
                 ? TrayClickBehavior.SingleClickOpensSettings
                 : TrayClickBehavior.DoubleClickOpensSettings,
             ModelPath = string.IsNullOrWhiteSpace(modelPath) ? null : modelPath,
-            ExclusiveMicAccessWhileDictating = this.ExclusiveMicAccessCheckBox.IsChecked == true
+            ExclusiveMicAccessWhileDictating = this.ExclusiveMicAccessCheckBox.IsChecked == true,
+            AutoCommitSilenceSeconds = autoCommitSeconds,
+            OverlayPlacement = overlayPlacement,
+            SendEnterAfterCommit = this.SendEnterAfterCommitCheckBox.IsChecked == true
         };
 
         this.SettingsSaved?.Invoke(settings);
@@ -172,6 +196,28 @@ internal partial class SettingsWindow : Window
         this.ShiftModifierCheckBox.IsChecked = hotkey.Shift;
         this.AltModifierCheckBox.IsChecked = hotkey.Alt;
         this.PrimaryKeyComboBox.SelectedItem = PrimaryKeyOptions.FirstOrDefault(option => option.KeyCode == hotkey.KeyCode);
+    }
+
+    private DictationOverlayPlacement GetSelectedOverlayPlacement()
+    {
+        var selected = (this.OverlayPlacementComboBox.SelectedItem as ComboBoxItem)?.Tag?.ToString();
+        return Enum.TryParse<DictationOverlayPlacement>(selected, out var placement)
+            ? placement
+            : DictationOverlayPlacement.LowerRight;
+    }
+
+    private void SelectOverlayPlacement(DictationOverlayPlacement placement)
+    {
+        foreach (var item in this.OverlayPlacementComboBox.Items.OfType<ComboBoxItem>())
+        {
+            if (string.Equals(item.Tag?.ToString(), placement.ToString(), StringComparison.Ordinal))
+            {
+                this.OverlayPlacementComboBox.SelectedItem = item;
+                return;
+            }
+        }
+
+        this.OverlayPlacementComboBox.SelectedIndex = 0;
     }
 
     private static IReadOnlyList<HotkeyPrimaryOption> BuildPrimaryKeyOptions()

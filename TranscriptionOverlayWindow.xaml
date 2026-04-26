@@ -1,0 +1,55 @@
+<Window x:Class="PrimeDictate.TranscriptionOverlayWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:ClassModifier="internal"
+        Width="430"
+        SizeToContent="Height"
+        WindowStyle="None"
+        ResizeMode="NoResize"
+        AllowsTransparency="True"
+        Background="Transparent"
+        ShowActivated="False"
+        ShowInTaskbar="False"
+        Topmost="True"
+        Focusable="False">
+    <Border Name="OverlayBorder"
+            Padding="14"
+            CornerRadius="7"
+            BorderThickness="1"
+            BorderBrush="#4B5563"
+            Background="#F2FFFFFF">
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <DockPanel>
+                <Ellipse Name="StateDot"
+                         Width="9"
+                         Height="9"
+                         Margin="0,0,8,0"
+                         VerticalAlignment="Center"
+                         Fill="#DC3545" />
+                <TextBlock Name="HeaderText"
+                           FontSize="12"
+                           FontWeight="SemiBold"
+                           Foreground="#111827"
+                           Text="Listening" />
+            </DockPanel>
+
+            <ScrollViewer Grid.Row="1"
+                          Margin="0,9,0,0"
+                          MaxHeight="170"
+                          VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollBarVisibility="Disabled">
+                <TextBlock Name="TranscriptText"
+                           FontSize="14"
+                           LineHeight="19"
+                           TextWrapping="Wrap"
+                           Foreground="#111827"
+                           Text="Listening..." />
+            </ScrollViewer>
+        </Grid>
+    </Border>
+</Window>

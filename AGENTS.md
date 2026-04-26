@@ -8,8 +8,8 @@ This file orients coding agents and future maintainers. It is not an end-user ma
 
 1. Listens for a **global** hotkey (`Ctrl+Shift+Space` / SharpHook) to start and stop capture.
 2. Records from the **default** Windows input device using **WASAPI** (NAudio `WasapiCapture`), normalizing to **16 kHz, 16-bit, mono** PCM.
-3. Feeds a **WAV** stream in memory to **Whisper.net** (whisper.cpp) for transcription.
-4. Injects the result with **SharpHook** `EventSimulator.SimulateTextEntry` (unicode text simulation), not clipboard + synthetic paste.
+3. Feeds **WAV** streams in memory to **Whisper.net** (whisper.cpp) for live preview and final transcription.
+4. Shows live transcript hypotheses in a non-activating WPF overlay, then injects the final result with **SharpHook** `EventSimulator.SimulateTextEntry` (unicode text simulation), not clipboard + synthetic paste. Optional coding mode sends `Enter` after a successful final commit.
 
 ## Layout
 
@@ -17,6 +17,8 @@ This file orients coding agents and future maintainers. It is not an end-user ma
 |------|------|
 | `Program.cs` | `Main`, hotkey listener, `DictationController` toggle, `DefaultMicrophoneRecorder`, `PcmAudioBuffer`. |
 | `WhisperTextInjectionPipeline.cs` | `ModelFileLocator`, `WhisperModelSession`, `PcmWav` helper, `WhisperTextInjectionPipeline` (lazy model load, transcribe, inject). |
+| `WindowsInputHelpers.cs` | Foreground-window guard for final injection and optional Windows Mouse Sonar pulse. |
+| `TranscriptionOverlayWindow.xaml` | Non-activating live transcript overlay; placement is user-configurable. |
 | `PrimeDictate.csproj` | Target `net8.0`; NAudio, SharpHook, Whisper.net + runtimes. |
 | `Directory.Build.props` | Shared assembly/file `Version` (installers read this too). |
 | `scripts/Publish-Windows.ps1` | Self-contained `win-x64` publish to `artifacts/win-x64/publish`. |
@@ -28,7 +30,9 @@ This file orients coding agents and future maintainers. It is not an end-user ma
 - **Disposal order for Whisper**: `WhisperProcessor` is disposed with `DisposeAsync` first; then `WhisperFactory.Dispose()` (see `WhisperModelSession`).
 - **Native / unmanaged**: Prefer `await using` and explicit disposal paths; do not add redundant `try`/`catch` unless there is a clear recovery story.
 - **Hotkey handler**: The hook runs on SharpHook’s thread; work is offloaded with `Task.Run` and `await` the dictation path carefully to avoid re-entrancy issues. `DictationController` uses a `SemaphoreSlim` for toggle mutual exclusion.
-- **Text injection**: **Do not** reintroduce “set clipboard + simulate paste + immediately restore old clipboard” without solving async paste delivery (delay, flush, or full clipboard snapshot/restore). The vetted baseline is `SimulateTextEntry` (see product README for rationale).
+- **Text injection**: **Do not** reintroduce “set clipboard + simulate paste + immediately restore old clipboard” without solving async paste delivery (delay, flush, or full clipboard snapshot/restore). The vetted baseline is final-only target `SimulateTextEntry` (see product README for rationale).
+- **Editor stability**: Live updates belong in the overlay, not in the target editor. Do not reintroduce live backspace/re-type correction into the focused app without a robust target/caret/completion strategy.
+- **Coding mode Enter**: The optional Enter key is sent only after final text injection succeeds and the foreground-window guard passes.
 - **Model path**: `ModelFileLocator` is the single place for file discovery and the `PRIME_DICTATE_MODEL` override; extend there instead of scattering path logic.
 
 ## Dependencies (NuGet)
@@ -49,11 +53,11 @@ This file orients coding agents and future maintainers. It is not an end-user ma
 
 The tray/onboarding milestone is now implemented:
 
-1. **Host process**: WPF tray host (`App.xaml`) with notification icon, Settings/Exit menu, and Idle/Listening tooltip state.
+1. **Host process**: WPF tray host (`App.xaml`) with notification icon, Settings/Exit menu, live transcript overlay, and Ready/Listening/Processing tooltip state.
 2. **User settings**: Persisted under `%LocalAppData%\PrimeDictate\settings.json`; loaded at startup and applied to `GlobalHotkeyListener`.
 3. **First run**: Missing/incomplete settings show `SettingsWindow` before normal tray-only behavior.
 4. **WiX launch option**: Offline and online packages include finish-page launch checkbox to start `PrimeDictate.exe`.
-5. **Preserved invariants**: `ModelFileLocator`, Whisper disposal order, hook-thread offload, and `SimulateTextEntry` baseline remain intact.
+5. **Preserved invariants**: `ModelFileLocator`, Whisper disposal order, hook-thread offload, foreground-window guard, overlay-only live preview, and final-only target `SimulateTextEntry` baseline remain intact.
 
 ## Build and test hints
 

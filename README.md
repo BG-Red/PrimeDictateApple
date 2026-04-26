@@ -1,18 +1,22 @@
 # PrimeDictate
 
-A locally hosted, global hotkey dictation utility for fast desktop workflows. It captures the default microphone, runs speech-to-text with [Whisper.net](https://github.com/sandrohanea/whisper.net) (whisper.cpp bindings), and **types the transcript into the focused application in real time**—periodically re-decoding the growing buffer and correcting earlier guesses with backspace plus new text—using SharpHook (no synthetic paste, no clipboard round-trip on the hot path).
+A locally hosted, global hotkey dictation utility for fast desktop workflows. It captures the default microphone, shows live Whisper transcription in a small overlay, and types the final transcript into the focused application after a silence auto-commit or manual stop using SharpHook (no synthetic paste, no clipboard round-trip on the hot path).
 
 ## Features
 
 - **Global hotkey**: Configurable global toggle (default `Ctrl+Shift+Space`) to start/stop recording.
 - **Tray workspace UI**: Open **Workspace** from the tray icon to browse per-session dictation threads and global runtime logs in a clearer, column-based dashboard layout.
 - **Log signal over noise**: Repeated adjacent log entries are collapsed (for example `(... x12)`) and history is capped to keep memory usage predictable.
-- **Real-time transcription**: While recording, the app periodically re-transcribes **all audio captured so far** and updates the focused application. You see words appear and refine as you speak, similar to inline completion: the model may revise an early guess as it hears more context.
-- **Correction strategy**: Each update compares the new full transcript to the text the app has already injected. It keeps the longest matching prefix, sends **Backspace** for the stale suffix, then types the new suffix (`SimulateKeyStroke` for backspace, `SimulateTextEntry` for characters). Stopping dictation runs one **final** full pass so nothing after the last live tick is lost.
+- **Live preview overlay**: While recording, the app periodically re-transcribes the growing buffer and shows the current hypothesis in a non-activating overlay.
+- **Silence auto-commit**: When speech has stopped for the configured delay (default 3 seconds), PrimeDictate stops capture, runs a final transcription pass, and sends the final text with `SimulateTextEntry`.
+- **Final-only target typing**: The target editor is not mutated while recording. Live corrections stay in the overlay so code editors and IntelliSense are not fighting backspace/retype updates.
+- **Coding mode**: Optional setting sends an Enter key immediately after a successful transcript commit.
+- **Foreground guard**: The foreground window is captured when recording starts; if focus changes before the transcript is ready, injection is skipped rather than typing into the wrong app.
+- **Built-in pointer cue**: If Windows Mouse Sonar is enabled, PrimeDictate pulses it on recording/processing transitions by tapping Ctrl. It does not draw a custom pointer overlay or change the user's Windows setting.
 - **Audio**: Windows default capture device via NAudio **WASAPI** (`WasapiCapture`), resampled to **16 kHz, 16-bit, mono PCM** for Whisper.
 - **Mic isolation mode (best effort)**: Optional exclusive-capture setting can block other apps from the mic on supported devices; if exclusive capture fails, PrimeDictate automatically falls back to shared mode and continues dictation.
 - **Inference**: [Whisper.net](https://www.nuget.org/packages/Whisper.net) `1.9.0` with `Whisper.net.Runtime` plus optional **CUDA** and **Vulkan** runtimes for hardware acceleration when available.
-- **Injection**: [SharpHook](https://www.nuget.org/packages/SharpHook) `EventSimulator` for Unicode text entry and backspace (no synthetic paste, no clipboard round-trip on the hot path).
+- **Injection**: [SharpHook](https://www.nuget.org/packages/SharpHook) `EventSimulator` for Unicode text entry (no synthetic paste, no clipboard round-trip on the hot path).
 
 ## Requirements
 
@@ -70,10 +74,11 @@ See [installer/README.md](installer/README.md) for details. Redistribute the GGM
 PrimeDictate now runs as a **WPF tray app** (no console window in normal use):
 
 - **Tray shell**: Notification-area icon with **Open Workspace**, **Settings**, and **Exit** menu items.
-- **Tray status colors**: **Ready = Blue**, **Recording = Red**, **Error = Yellow**. Tooltip text follows app state (`Ready`, `Listening`, `Error`).
+- **Tray status colors**: **Ready = Blue**, **Recording = Red**, **Processing = Green**, **Error = Yellow**. Tooltip text follows app state (`Ready`, `Listening`, `Processing transcript`, `Error`).
 - **First launch**: If `%LocalAppData%\PrimeDictate\settings.json` is missing or incomplete, a setup window appears to capture hotkey and tray click behavior.
 - **Configurable hotkey**: Global hotkey is loaded from saved settings and applied to `GlobalHotkeyListener` at startup (default remains `Ctrl+Shift+Space` until changed).
 - **Model override in settings**: Setup window now includes a model file picker that sets a process-local `PRIME_DICTATE_MODEL` override.
+- **Preview settings**: Setup window includes the silence auto-commit delay, overlay placement, and optional coding-mode Enter key.
 - **Installer continuity**: Offline and online MSIs share one product identity (same MSI name + upgrade family), so installing either flavor upgrades/replaces the other.
 - **Installer finish launch**: Both MSI flavors expose **“Launch PrimeDictate when setup completes”** (checked by default), which starts the app after install.
 
@@ -90,17 +95,17 @@ cd path\to\PrimeDictate
 dotnet run
 ```
 
-The app starts in the tray. On first launch, complete setup, then focus another application and use your configured hotkey to dictate. Transcript appears at the caret **while recording** and finalizes when you press the hotkey again.
-
-**Live loop tuning** (in source, `DictationController`): default tick is about **1.5 s** between snapshot attempts; a snapshot needs at least about **0.55 s** of audio, and ticks are skipped when the PCM buffer size has not grown (silence / pause) to avoid redundant model runs.
+The app starts in the tray. On first launch, complete setup, then focus another application and use your configured hotkey to start dictation. A live transcript appears in the overlay while you speak. PrimeDictate commits after the configured silence delay, or when you press the hotkey again.
 
 **Note:** Stopping a running `dotnet run` (or any running `PrimeDictate.exe`) may be required before `dotnet build` can replace `bin\...\PrimeDictate.exe` on Windows (file lock on the apphost).
 
-### Using real-time dictation reliably
+### Using dictation reliably
 
-- Keep the **caret** in the field where you want text; the app does not move focus for you.
-- Avoid **manually editing** the span PrimeDictate is inserting into during a session. Correction assumes the document still matches what the app last typed; if you change it by hand, backspaces can delete the wrong characters.
-- **Cost**: Each live tick runs Whisper on the **entire** recording from session start, so work grows with session length. Long monologues are heavier than short phrases; a faster or smaller model helps if this becomes limiting.
+- Keep the **caret** in the field where you want text before starting. The app does not move focus for you.
+- Do not click into another application while the tray says **Processing transcript**; if the foreground window changes, injection is skipped for safety.
+- Use the overlay as the live feedback surface. The focused editor receives only the final committed transcript.
+- For a built-in mouse cue, enable Windows' "show location of pointer when I press CTRL key" setting. PrimeDictate uses that OS feature when available.
+- Long monologues are heavier than short phrases because Whisper preview reprocesses snapshots and the final pass processes the full recording. A faster or smaller model helps if this becomes limiting.
 
 ## Configuration surface
 
@@ -108,8 +113,7 @@ The app starts in the tray. On first launch, complete setup, then focus another 
 |-----------|---------|
 | `PRIME_DICTATE_MODEL` | Absolute path to the GGML model file, if not using the default `models/ggml-large-v3-turbo.bin` layout. |
 | `WhisperProcessorBuilder` | Language detection and other inference options are set in `WhisperTextInjectionPipeline` (`WithLanguageDetection()`, etc.). |
-| Live loop constants | `LiveTranscribeInterval` and `LiveMinAudio` in `DictationController` (`Program.cs`). |
-| User settings + first-run | Stored at `%LocalAppData%\PrimeDictate\settings.json` with `FirstRunCompleted`, dictation hotkey, tray click behavior, model override, and optional exclusive mic capture toggle. |
+| User settings + first-run | Stored at `%LocalAppData%\PrimeDictate\settings.json` with `FirstRunCompleted`, dictation hotkey, tray click behavior, model override, optional exclusive mic capture toggle, silence auto-commit delay, overlay placement, and coding-mode Enter toggle. |
 
 ## Architecture (high level)
 
@@ -117,10 +121,11 @@ The app starts in the tray. On first launch, complete setup, then focus another 
 |------|------------|
 | Hotkey | SharpHook `SimpleGlobalHook`, keyboard only; gesture loaded from settings and matched on `KeyPressed`. |
 | Capture | NAudio `WasapiCapture` + `MediaFoundationResampler` to 16 kHz mono PCM. |
-| Live snapshots | `DefaultMicrophoneRecorder.TryGetPcm16KhzMonoSnapshot` copies and resamples the current buffer while recording (same format as the final `StopAsync` buffer). |
-| Live loop | `DictationController.LiveTranscriptionLoopAsync`: background task started with recording; cancelled when recording stops, then a final transcribe-and-sync runs on the full take. |
+| Live preview | `DictationController.LivePreviewLoopAsync` snapshots the growing PCM buffer, re-runs Whisper for the overlay, and watches recent RMS level for silence. |
 | Transcription | `WhisperFactory.FromPath` → `WhisperProcessor` → `ProcessAsync` over an in-memory WAV stream built from PCM; full segment text is assembled per pass. |
-| Typing / correction | `WhisperTextInjectionPipeline` keeps `committedTargetText`, then `SyncCommittedTextToTarget`: longest common prefix, `SimulateKeyStroke(Backspace)`, `SimulateTextEntry` for the suffix; `BeginLiveDictationSession` resets state when a new session starts. |
+| Overlay | `TranscriptionOverlayWindow` is topmost, non-activating, and click-through so the target editor keeps focus. |
+| Typing | `WhisperTextInjectionPipeline.TranscribeAsync` builds the final transcript, then `InjectTextToTarget` sends it once with `SimulateTextEntry`; optional coding mode follows with `VcEnter`. |
+| Target safety + pointer cue | `WindowsInputHelpers.cs` captures the foreground window at recording start, checks it before injection, and uses Windows Mouse Sonar if enabled. |
 
 ### Why not clipboard + Ctrl+V?
 

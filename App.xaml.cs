@@ -13,6 +13,7 @@ public partial class App : System.Windows.Application
     private readonly Icon appIcon = AppIconProvider.LoadWindowIcon();
     private readonly Icon trayReadyIcon = AppIconProvider.CreateTrayIcon(TrayVisualState.Ready);
     private readonly Icon trayRecordingIcon = AppIconProvider.CreateTrayIcon(TrayVisualState.Recording);
+    private readonly Icon trayProcessingIcon = AppIconProvider.CreateTrayIcon(TrayVisualState.Processing);
     private readonly Icon trayErrorIcon = AppIconProvider.CreateTrayIcon(TrayVisualState.Error);
     private readonly DispatcherTimer errorStateTimer;
     private Forms.NotifyIcon? notifyIcon;
@@ -23,8 +24,11 @@ public partial class App : System.Windows.Application
     private Task? hookTask;
     private SettingsWindow? settingsWindow;
     private MainWindow? workspaceWindow;
+    private TranscriptionOverlayWindow? transcriptionOverlayWindow;
     private readonly DictationWorkspaceViewModel workspaceViewModel = new();
+    private string overlayTranscript = string.Empty;
     private bool isRecording;
+    private bool isProcessing;
     private DateTime errorStateUntilUtc = DateTime.MinValue;
 
     public App()
@@ -50,8 +54,12 @@ public partial class App : System.Windows.Application
             : HotkeyGesture.Default;
         this.settings.DictationHotkey = configured;
 
-        this.dictationController = new DictationController(this.settings.ExclusiveMicAccessWhileDictating);
+        this.dictationController = new DictationController(
+            this.settings.ExclusiveMicAccessWhileDictating,
+            TimeSpan.FromSeconds(this.settings.AutoCommitSilenceSeconds),
+            this.settings.SendEnterAfterCommit);
         this.dictationController.RecordingStateChanged += this.OnRecordingStateChanged;
+        this.dictationController.ProcessingStateChanged += this.OnProcessingStateChanged;
         this.dictationController.ThreadStarted += this.OnThreadStarted;
         this.dictationController.ThreadCompleted += this.OnThreadCompleted;
         this.dictationController.ThreadTranscriptUpdated += this.OnThreadTranscriptUpdated;
@@ -83,6 +91,7 @@ public partial class App : System.Windows.Application
         if (this.dictationController is not null)
         {
             this.dictationController.RecordingStateChanged -= this.OnRecordingStateChanged;
+            this.dictationController.ProcessingStateChanged -= this.OnProcessingStateChanged;
             this.dictationController.ThreadStarted -= this.OnThreadStarted;
             this.dictationController.ThreadCompleted -= this.OnThreadCompleted;
             this.dictationController.ThreadTranscriptUpdated -= this.OnThreadTranscriptUpdated;
@@ -97,10 +106,17 @@ public partial class App : System.Windows.Application
             this.notifyIcon.Dispose();
         }
 
+        if (this.transcriptionOverlayWindow is not null)
+        {
+            this.transcriptionOverlayWindow.Close();
+            this.transcriptionOverlayWindow = null;
+        }
+
         this.errorStateTimer.Stop();
         this.errorStateTimer.Tick -= this.OnErrorStateTimerTick;
         this.trayReadyIcon.Dispose();
         this.trayRecordingIcon.Dispose();
+        this.trayProcessingIcon.Dispose();
         this.trayErrorIcon.Dispose();
         this.appIcon.Dispose();
 
@@ -171,8 +187,12 @@ public partial class App : System.Windows.Application
         this.settings = newSettings;
         this.settingsStore.Save(newSettings);
         this.hotkeyListener.UpdateHotkey(newSettings.DictationHotkey);
-        this.dictationController?.UpdateCaptureOptions(newSettings.ExclusiveMicAccessWhileDictating);
+        this.dictationController?.UpdateCaptureOptions(
+            newSettings.ExclusiveMicAccessWhileDictating,
+            TimeSpan.FromSeconds(newSettings.AutoCommitSilenceSeconds),
+            newSettings.SendEnterAfterCommit);
         this.ApplyModelPathOverride(newSettings);
+        this.UpdateTranscriptionOverlay();
     }
 
     private void OnRecordingStateChanged(bool isRecording)
@@ -182,6 +202,26 @@ public partial class App : System.Windows.Application
             this.isRecording = isRecording;
             this.UpdateTrayState();
         });
+
+        if (isRecording)
+        {
+            PulseMousePointerCueSoon();
+        }
+    }
+
+    private void OnProcessingStateChanged(bool isProcessing)
+    {
+        this.Dispatcher.Invoke(() =>
+        {
+            this.isProcessing = isProcessing;
+            this.UpdateTrayState();
+            this.UpdateTranscriptionOverlay();
+        });
+
+        if (isProcessing)
+        {
+            PulseMousePointerCueSoon();
+        }
     }
 
     private void UpdateTrayState()
@@ -192,6 +232,7 @@ public partial class App : System.Windows.Application
             this.notifyIcon.Icon = trayState switch
             {
                 TrayVisualState.Recording => this.trayRecordingIcon,
+                TrayVisualState.Processing => this.trayProcessingIcon,
                 TrayVisualState.Error => this.trayErrorIcon,
                 _ => this.trayReadyIcon
             };
@@ -199,6 +240,7 @@ public partial class App : System.Windows.Application
             this.notifyIcon.Text = trayState switch
             {
                 TrayVisualState.Recording => this.GetRecordingTooltipText(),
+                TrayVisualState.Processing => "PrimeDictate - Processing transcript",
                 TrayVisualState.Error => "PrimeDictate - Error",
                 _ => "PrimeDictate - Ready"
             };
@@ -231,6 +273,46 @@ public partial class App : System.Windows.Application
         this.workspaceWindow.Activate();
     }
 
+    private void ShowTranscriptionOverlay()
+    {
+        if (this.settings is null)
+        {
+            return;
+        }
+
+        if (this.transcriptionOverlayWindow is null)
+        {
+            this.transcriptionOverlayWindow = new TranscriptionOverlayWindow();
+            this.transcriptionOverlayWindow.Closed += (_, _) => this.transcriptionOverlayWindow = null;
+            this.transcriptionOverlayWindow.Show();
+        }
+
+        this.UpdateTranscriptionOverlay();
+    }
+
+    private void HideTranscriptionOverlay()
+    {
+        if (this.transcriptionOverlayWindow is null)
+        {
+            return;
+        }
+
+        this.transcriptionOverlayWindow.Close();
+        this.transcriptionOverlayWindow = null;
+        this.overlayTranscript = string.Empty;
+    }
+
+    private void UpdateTranscriptionOverlay()
+    {
+        if (this.transcriptionOverlayWindow is null || this.settings is null)
+        {
+            return;
+        }
+
+        this.transcriptionOverlayWindow.SetPlacement(this.settings.OverlayPlacement);
+        this.transcriptionOverlayWindow.UpdateTranscript(this.overlayTranscript, this.isProcessing);
+    }
+
     private void OnAppLogEntryWritten(AppLogEntry entry)
     {
         this.Dispatcher.Invoke(() =>
@@ -251,12 +333,21 @@ public partial class App : System.Windows.Application
 
     private void OnThreadStarted(Guid threadId)
     {
-        this.Dispatcher.Invoke(() => this.workspaceViewModel.StartThread(threadId));
+        this.Dispatcher.Invoke(() =>
+        {
+            this.overlayTranscript = string.Empty;
+            this.workspaceViewModel.StartThread(threadId);
+            this.ShowTranscriptionOverlay();
+        });
     }
 
     private void OnThreadCompleted(Guid threadId)
     {
-        this.Dispatcher.Invoke(() => this.workspaceViewModel.MarkThreadCompleted(threadId));
+        this.Dispatcher.Invoke(() =>
+        {
+            this.workspaceViewModel.MarkThreadCompleted(threadId);
+            this.HideTranscriptionOverlay();
+        });
     }
 
     private void OnThreadTranscriptUpdated(Guid threadId, string transcript)
@@ -267,6 +358,9 @@ public partial class App : System.Windows.Application
             {
                 thread.LatestTranscript = transcript;
             }
+
+            this.overlayTranscript = transcript;
+            this.UpdateTranscriptionOverlay();
         });
     }
 
@@ -294,6 +388,11 @@ public partial class App : System.Windows.Application
             return TrayVisualState.Recording;
         }
 
+        if (this.isProcessing)
+        {
+            return TrayVisualState.Processing;
+        }
+
         if (DateTime.UtcNow <= this.errorStateUntilUtc)
         {
             return TrayVisualState.Error;
@@ -309,6 +408,22 @@ public partial class App : System.Windows.Application
             this.errorStateTimer.Stop();
             this.UpdateTrayState();
         }
+    }
+
+    private static void PulseMousePointerCueSoon()
+    {
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(150).ConfigureAwait(false);
+            try
+            {
+                WindowsMousePointerIndicator.PulseIfMouseSonarEnabled();
+            }
+            catch (Exception ex)
+            {
+                AppLog.Info($"Windows Mouse Sonar cue unavailable: {ex.Message}");
+            }
+        });
     }
 
     private static async Task StopHookAsync(Task hookTask)

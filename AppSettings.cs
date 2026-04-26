@@ -17,13 +17,22 @@ internal sealed class AppSettings
 
     public bool ExclusiveMicAccessWhileDictating { get; set; }
 
+    public int AutoCommitSilenceSeconds { get; set; } = 3;
+
+    public DictationOverlayPlacement OverlayPlacement { get; set; } = DictationOverlayPlacement.LowerRight;
+
+    public bool SendEnterAfterCommit { get; set; }
+
     public static AppSettings CreateDefaultForFirstRun() => new()
     {
         FirstRunCompleted = false,
         DictationHotkey = HotkeyGesture.Default,
         TrayClickBehavior = TrayClickBehavior.DoubleClickOpensSettings,
         ModelPath = null,
-        ExclusiveMicAccessWhileDictating = false
+        ExclusiveMicAccessWhileDictating = false,
+        AutoCommitSilenceSeconds = 3,
+        OverlayPlacement = DictationOverlayPlacement.LowerRight,
+        SendEnterAfterCommit = false
     };
 }
 
@@ -31,6 +40,14 @@ internal enum TrayClickBehavior
 {
     SingleClickOpensSettings = 0,
     DoubleClickOpensSettings = 1
+}
+
+internal enum DictationOverlayPlacement
+{
+    LowerRight = 0,
+    LowerLeft = 1,
+    UpperRight = 2,
+    UpperLeft = 3
 }
 
 internal sealed class HotkeyGesture
