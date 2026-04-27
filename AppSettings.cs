@@ -20,7 +20,13 @@ internal sealed class AppSettings
 
     public string? ModelPath { get; set; }
 
+    public bool UseGpuForWhisper { get; set; } = true;
+
     public bool ExclusiveMicAccessWhileDictating { get; set; }
+
+    public string? SelectedInputDeviceId { get; set; }
+
+    public double InputGainMultiplier { get; set; } = 1.0;
 
     public int AutoCommitSilenceSeconds { get; set; } = 3;
 
@@ -52,7 +58,10 @@ internal sealed class AppSettings
         TranscriptionBackend = TranscriptionBackendKind.Whisper,
         SelectedModelId = null,
         ModelPath = null,
+        UseGpuForWhisper = true,
         ExclusiveMicAccessWhileDictating = false,
+        SelectedInputDeviceId = null,
+        InputGainMultiplier = 1.0,
         AutoCommitSilenceSeconds = 3,
         SendEnterAfterCommit = false,
         ReturnToStartTargetOnCommit = false,

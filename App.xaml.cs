@@ -65,12 +65,15 @@ public partial class App : System.Windows.Application
 
         this.dictationController = new DictationController(
             this.settings.ExclusiveMicAccessWhileDictating,
+            this.settings.SelectedInputDeviceId,
+            this.settings.InputGainMultiplier,
             TimeSpan.FromSeconds(this.settings.AutoCommitSilenceSeconds),
             this.settings.SendEnterAfterCommit,
             this.settings.ReturnToStartTargetOnCommit,
             this.settings.TranscriptionBackend,
             this.settings.SelectedModelId,
             this.settings.ModelPath,
+            this.settings.UseGpuForWhisper,
             this.settings.EnableOllamaPostProcessing,
             this.settings.OllamaEndpoint,
             this.settings.OllamaModel,
@@ -238,12 +241,15 @@ public partial class App : System.Windows.Application
         this.hotkeyListener.UpdateHotkey(newSettings.DictationHotkey);
         this.dictationController?.UpdateCaptureOptions(
             newSettings.ExclusiveMicAccessWhileDictating,
+            newSettings.SelectedInputDeviceId,
+            newSettings.InputGainMultiplier,
             TimeSpan.FromSeconds(newSettings.AutoCommitSilenceSeconds),
             newSettings.SendEnterAfterCommit,
             newSettings.ReturnToStartTargetOnCommit,
             newSettings.TranscriptionBackend,
             newSettings.SelectedModelId,
             newSettings.ModelPath,
+            newSettings.UseGpuForWhisper,
             newSettings.EnableOllamaPostProcessing,
             newSettings.OllamaEndpoint,
             newSettings.OllamaModel,

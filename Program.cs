@@ -1,4 +1,4 @@
-using System.Diagnostics.CodeAnalysis;
+﻿using System.Diagnostics.CodeAnalysis;
 using System.Buffers;
 using System.IO;
 using System.Runtime.InteropServices;
@@ -85,13 +85,15 @@ internal sealed class DictationController : IAsyncDisposable
     private static readonly TimeSpan LivePreviewMaxAudio = TimeSpan.FromSeconds(12);
     private static readonly TimeSpan SilenceProbeInterval = TimeSpan.FromMilliseconds(500);
     private static readonly TimeSpan RecentSpeechWindow = TimeSpan.FromMilliseconds(450);
-    private const double SpeechRmsThreshold = 0.01;
+    private const double SpeechRmsThreshold = 0.0065;
 
     private readonly SemaphoreSlim toggleGate = new(initialCount: 1, maxCount: 1);
     private readonly DefaultMicrophoneRecorder recorder = new();
     private readonly WhisperTextInjectionPipeline textInjectionPipeline = new();
     private readonly object configSync = new();
     private bool exclusiveMicAccessWhileDictating;
+    private string? selectedInputDeviceId;
+    private double inputGainMultiplier;
     private TimeSpan autoCommitSilenceDelay;
     private bool sendEnterAfterCommit;
     private bool returnToStartTargetOnCommit;
@@ -116,18 +118,23 @@ internal sealed class DictationController : IAsyncDisposable
 
     public DictationController(
         bool exclusiveMicAccessWhileDictating = false,
+        string? selectedInputDeviceId = null,
+        double inputGainMultiplier = 1.0,
         TimeSpan? autoCommitSilenceDelay = null,
         bool sendEnterAfterCommit = false,
         bool returnToStartTargetOnCommit = false,
         TranscriptionBackendKind transcriptionBackend = TranscriptionBackendKind.Whisper,
         string? selectedModelId = null,
         string? modelPath = null,
+        bool useGpuForWhisper = true,
         bool enableOllamaPostProcessing = false,
         string ollamaEndpoint = "http://localhost:11434",
         string ollamaModel = "gemma:2b",
         OllamaMode ollamaMode = OllamaMode.Default)
     {
         this.exclusiveMicAccessWhileDictating = exclusiveMicAccessWhileDictating;
+        this.selectedInputDeviceId = string.IsNullOrWhiteSpace(selectedInputDeviceId) ? null : selectedInputDeviceId;
+        this.inputGainMultiplier = NormalizeInputGain(inputGainMultiplier);
         this.autoCommitSilenceDelay = NormalizeSilenceDelay(autoCommitSilenceDelay ?? TimeSpan.FromSeconds(3));
         this.sendEnterAfterCommit = sendEnterAfterCommit;
         this.returnToStartTargetOnCommit = returnToStartTargetOnCommit;
@@ -135,7 +142,9 @@ internal sealed class DictationController : IAsyncDisposable
         this.ollamaEndpoint = ollamaEndpoint;
         this.ollamaModel = ollamaModel;
         this.ollamaMode = ollamaMode;
-        this.textInjectionPipeline.UpdateConfiguration(transcriptionBackend, selectedModelId, modelPath);
+        this.textInjectionPipeline.UpdateConfiguration(transcriptionBackend, selectedModelId, modelPath, useGpuForWhisper);
+        this.recorder.UpdateInputDevice(this.selectedInputDeviceId);
+        this.recorder.UpdateInputGain(this.inputGainMultiplier);
         this.recorder.AudioLevelUpdated += rms => this.AudioLevelUpdated?.Invoke(rms);
     }
 
@@ -150,12 +159,15 @@ internal sealed class DictationController : IAsyncDisposable
 
     public void UpdateCaptureOptions(
         bool exclusiveMicAccessWhileDictating,
+        string? selectedInputDeviceId,
+        double inputGainMultiplier,
         TimeSpan autoCommitSilenceDelay,
         bool sendEnterAfterCommit,
         bool returnToStartTargetOnCommit,
         TranscriptionBackendKind transcriptionBackend,
         string? selectedModelId,
         string? modelPath,
+        bool useGpuForWhisper,
         bool enableOllamaPostProcessing,
         string ollamaEndpoint,
         string ollamaModel,
@@ -164,6 +176,8 @@ internal sealed class DictationController : IAsyncDisposable
         lock (this.configSync)
         {
             this.exclusiveMicAccessWhileDictating = exclusiveMicAccessWhileDictating;
+            this.selectedInputDeviceId = string.IsNullOrWhiteSpace(selectedInputDeviceId) ? null : selectedInputDeviceId;
+            this.inputGainMultiplier = NormalizeInputGain(inputGainMultiplier);
             this.autoCommitSilenceDelay = NormalizeSilenceDelay(autoCommitSilenceDelay);
             this.sendEnterAfterCommit = sendEnterAfterCommit;
             this.returnToStartTargetOnCommit = returnToStartTargetOnCommit;
@@ -173,7 +187,9 @@ internal sealed class DictationController : IAsyncDisposable
             this.ollamaMode = ollamaMode;
         }
 
-        this.textInjectionPipeline.UpdateConfiguration(transcriptionBackend, selectedModelId, modelPath);
+        this.textInjectionPipeline.UpdateConfiguration(transcriptionBackend, selectedModelId, modelPath, useGpuForWhisper);
+        this.recorder.UpdateInputDevice(this.selectedInputDeviceId);
+        this.recorder.UpdateInputGain(this.inputGainMultiplier);
     }
 
     public async Task ToggleRecordingAsync()
@@ -291,7 +307,7 @@ internal sealed class DictationController : IAsyncDisposable
             if (DateTime.UtcNow - lastSpeechUtc >= silenceDelay)
             {
                 this.RequestCommitAfterSilence();
-                break;
+                continue;
             }
         }
     }
@@ -324,6 +340,20 @@ internal sealed class DictationController : IAsyncDisposable
         {
             if (!this.recorder.IsRecording)
             {
+                return;
+            }
+
+            if (this.recorder.TryGetPcm16KhzMonoSnapshot(
+                    out var snapshot,
+                    out _,
+                    RecentSpeechWindow + TimeSpan.FromMilliseconds(150)) &&
+                snapshot is not null &&
+                !snapshot.IsEmpty &&
+                HasRecentSpeech(snapshot))
+            {
+                // If speech resumed while auto-commit was queued, keep recording.
+                Interlocked.Exchange(ref this.autoCommitRequested, 0);
+                AppLog.Info("Auto-commit canceled because speech resumed.", this.activeThreadId);
                 return;
             }
 
@@ -364,7 +394,7 @@ internal sealed class DictationController : IAsyncDisposable
 
         try
         {
-            await this.HandleRecordedAudioAsync(audio).ConfigureAwait(false);
+            await this.HandleRecordedAudioAsync(audio, reason).ConfigureAwait(false);
             if (this.activeThreadId is Guid completedId)
             {
                 this.ThreadCompleted?.Invoke(completedId);
@@ -422,7 +452,7 @@ internal sealed class DictationController : IAsyncDisposable
         }
     }
 
-    private async Task HandleRecordedAudioAsync(PcmAudioBuffer audio)
+    private async Task HandleRecordedAudioAsync(PcmAudioBuffer audio, string stopReason)
     {
         if (audio.IsEmpty)
         {
@@ -439,6 +469,7 @@ internal sealed class DictationController : IAsyncDisposable
         {
             finalTranscript = await this.textInjectionPipeline.TranscribeAsync(audio, CancellationToken.None)
                 .ConfigureAwait(false);
+            finalTranscript = RemoveTrailingSilenceArtifact(finalTranscript, stopReason);
             if (this.activeThreadId is Guid threadId && !string.IsNullOrWhiteSpace(finalTranscript))
             {
                 this.ThreadTranscriptUpdated?.Invoke(threadId, finalTranscript);
@@ -634,6 +665,67 @@ internal sealed class DictationController : IAsyncDisposable
         return delay;
     }
 
+    private static double NormalizeInputGain(double gain)
+    {
+        if (double.IsNaN(gain) || double.IsInfinity(gain))
+        {
+            return 1.0;
+        }
+
+        return Math.Clamp(gain, 0.5, 4.0);
+    }
+
+    private static string RemoveTrailingSilenceArtifact(string transcript, string stopReason)
+    {
+        if (!stopReason.Contains("silence", StringComparison.OrdinalIgnoreCase))
+        {
+            return transcript;
+        }
+
+        var text = transcript.TrimEnd();
+        if (text.Length == 0)
+        {
+            return text;
+        }
+
+        if (!EndsWithTrailingToken(text, "ok") && !EndsWithTrailingToken(text, "okay"))
+        {
+            return text;
+        }
+
+        var splitIndex = text.LastIndexOf(' ');
+        if (splitIndex <= 0)
+        {
+            return text;
+        }
+
+        var withoutToken = text[..splitIndex].TrimEnd(' ', '\t', ',', '.', ';', ':', '!', '?', '-', '—');
+        if (withoutToken.Length == 0)
+        {
+            return text;
+        }
+
+        AppLog.Info("Removed trailing silence artifact token from transcript.");
+        return withoutToken;
+    }
+
+    private static bool EndsWithTrailingToken(string text, string token)
+    {
+        if (text.Length <= token.Length)
+        {
+            return string.Equals(text, token, StringComparison.OrdinalIgnoreCase);
+        }
+
+        var tokenStart = text.Length - token.Length;
+        if (!text.AsSpan(tokenStart).Equals(token, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var boundary = text[tokenStart - 1];
+        return char.IsWhiteSpace(boundary) || char.IsPunctuation(boundary);
+    }
+
     private static bool HasRecentSpeech(PcmAudioBuffer audio)
     {
         if (audio.BitsPerSample != 16 || audio.Channels != 1 || audio.Pcm16KhzMono.Length < 2)
@@ -674,6 +766,8 @@ internal sealed class DefaultMicrophoneRecorder : IDisposable
     private WaveFormat? captureFormat;
     private TaskCompletionSource<Exception?>? stoppedSignal;
     private AudioClientShareMode? activeShareMode;
+    private string? selectedInputDeviceId;
+    private double inputGainMultiplier = 1.0;
 
     public bool IsRecording
     {
@@ -717,6 +811,38 @@ internal sealed class DefaultMicrophoneRecorder : IDisposable
                 AppLog.Info($"Exclusive microphone mode failed ({ex.Message}). Falling back to shared mode.");
                 this.InitializeAndStartCapture(exclusiveMode: false);
             }
+        }
+    }
+
+    public void UpdateInputDevice(string? deviceId)
+    {
+        lock (this.syncRoot)
+        {
+            if (this.capture is not null)
+            {
+                throw new InvalidOperationException("Cannot change microphone while recording is in progress.");
+            }
+
+            this.selectedInputDeviceId = string.IsNullOrWhiteSpace(deviceId) ? null : deviceId;
+        }
+    }
+
+    public void UpdateInputGain(double gainMultiplier)
+    {
+        lock (this.syncRoot)
+        {
+            if (this.capture is not null)
+            {
+                throw new InvalidOperationException("Cannot change input gain while recording is in progress.");
+            }
+
+            if (double.IsNaN(gainMultiplier) || double.IsInfinity(gainMultiplier))
+            {
+                this.inputGainMultiplier = 1.0;
+                return;
+            }
+
+            this.inputGainMultiplier = Math.Clamp(gainMultiplier, 0.5, 4.0);
         }
     }
 
@@ -805,16 +931,27 @@ internal sealed class DefaultMicrophoneRecorder : IDisposable
     private void OnDataAvailable(object? sender, WaveInEventArgs args)
     {
         double? rmsToPublish = null;
+        byte[]? gainBuffer = null;
+        byte[] sourceBuffer = args.Buffer;
+        int bytesRecorded = args.BytesRecorded;
 
         lock (this.syncRoot)
         {
-            this.captureBuffer?.Write(args.Buffer, 0, args.BytesRecorded);
+            if (this.captureFormat is not null && this.inputGainMultiplier != 1.0)
+            {
+                gainBuffer = ArrayPool<byte>.Shared.Rent(bytesRecorded);
+                Buffer.BlockCopy(args.Buffer, 0, gainBuffer, 0, bytesRecorded);
+                ApplyGainInPlace(gainBuffer.AsSpan(0, bytesRecorded), this.captureFormat, this.inputGainMultiplier);
+                sourceBuffer = gainBuffer;
+            }
+
+            this.captureBuffer?.Write(sourceBuffer, 0, bytesRecorded);
 
             if (this.captureFormat is not null && this.AudioLevelUpdated is not null)
             {
                 double rms = 0;
-                var bytes = args.Buffer;
-                var recorded = args.BytesRecorded;
+                var bytes = sourceBuffer;
+                var recorded = bytesRecorded;
 
                 if (this.captureFormat.Encoding == WaveFormatEncoding.IeeeFloat)
                 {
@@ -851,6 +988,11 @@ internal sealed class DefaultMicrophoneRecorder : IDisposable
         {
             this.AudioLevelUpdated?.Invoke(level);
         }
+
+        if (gainBuffer is not null)
+        {
+            ArrayPool<byte>.Shared.Return(gainBuffer);
+        }
     }
 
     private void OnRecordingStopped(object? sender, StoppedEventArgs args)
@@ -881,10 +1023,37 @@ internal sealed class DefaultMicrophoneRecorder : IDisposable
 
     private void InitializeAndStartCapture(bool exclusiveMode)
     {
-        var newCapture = new WasapiCapture
+        WasapiCapture newCapture;
+        var shareMode = exclusiveMode ? AudioClientShareMode.Exclusive : AudioClientShareMode.Shared;
+        if (string.IsNullOrWhiteSpace(this.selectedInputDeviceId))
         {
-            ShareMode = exclusiveMode ? AudioClientShareMode.Exclusive : AudioClientShareMode.Shared
-        };
+            newCapture = new WasapiCapture
+            {
+                ShareMode = shareMode
+            };
+        }
+        else
+        {
+            try
+            {
+                using var enumerator = new MMDeviceEnumerator();
+                var device = enumerator.GetDevice(this.selectedInputDeviceId);
+                newCapture = new WasapiCapture(device)
+                {
+                    ShareMode = shareMode
+                };
+                AppLog.Info($"Using selected microphone: {device.FriendlyName}");
+            }
+            catch (Exception ex)
+            {
+                AppLog.Error($"Selected microphone unavailable ({ex.Message}). Falling back to system default.");
+                this.selectedInputDeviceId = null;
+                newCapture = new WasapiCapture
+                {
+                    ShareMode = shareMode
+                };
+            }
+        }
 
         this.capture = newCapture;
         this.captureFormat = newCapture.WaveFormat;
@@ -1007,6 +1176,35 @@ internal sealed class DefaultMicrophoneRecorder : IDisposable
         var seconds = (double)rawLength / rawFormat.AverageBytesPerSecond;
         var targetBytes = seconds * TargetSampleRate * TargetChannels * (TargetBitsPerSample / 8);
         return targetBytes >= int.MaxValue ? 0 : Math.Max(0, (int)Math.Ceiling(targetBytes));
+    }
+
+    private static void ApplyGainInPlace(Span<byte> buffer, WaveFormat format, double gainMultiplier)
+    {
+        if (gainMultiplier == 1.0 || buffer.IsEmpty)
+        {
+            return;
+        }
+
+        if (format.Encoding == WaveFormatEncoding.Pcm && format.BitsPerSample == 16)
+        {
+            var sampleBytes = buffer[..(buffer.Length & ~1)];
+            var samples = MemoryMarshal.Cast<byte, short>(sampleBytes);
+            for (var i = 0; i < samples.Length; i++)
+            {
+                var amplified = samples[i] * gainMultiplier;
+                samples[i] = (short)Math.Clamp(amplified, short.MinValue, short.MaxValue);
+            }
+        }
+        else if (format.Encoding == WaveFormatEncoding.IeeeFloat)
+        {
+            var sampleBytes = buffer[..(buffer.Length & ~3)];
+            var samples = MemoryMarshal.Cast<byte, float>(sampleBytes);
+            for (var i = 0; i < samples.Length; i++)
+            {
+                var amplified = samples[i] * gainMultiplier;
+                samples[i] = (float)Math.Clamp(amplified, -1.0, 1.0);
+            }
+        }
     }
 }
 

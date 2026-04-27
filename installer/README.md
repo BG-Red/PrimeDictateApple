@@ -54,6 +54,31 @@ PrimeDictate publishes a Chocolatey package from the same tagged release pipelin
 
 If `CHOCO_API_KEY` is missing, the workflow still builds assets and publishes to GitHub Releases, but skips Chocolatey push.
 
+### Local maintainer repack/push (no GitHub Actions)
+
+Use this when Chocolatey moderation asks for fixes on the same package version.
+
+1. Download the target release MSI (for example `v3.1.2`) from GitHub Releases.
+2. Replace `installer\chocolatey\tools\PrimeDictate-Online.msi` with that MSI.
+3. Ensure `installer\chocolatey\tools\LICENSE.txt` and `installer\chocolatey\tools\VERIFICATION.txt` are present and match the exact version/hash being submitted.
+4. Run:
+
+```powershell
+choco pack .\installer\chocolatey\primedictate.nuspec --version <version>
+choco push .\installer\chocolatey\primedictate.<version>.nupkg --source https://push.chocolatey.org/ --api-key <your-api-key>
+```
+
+Security note: never commit API keys, never place them in repository files, and rotate any key that was ever shared outside your secure secret storage.
+
+### Chocolatey moderation checklist
+
+Before pushing a moderated rebuild, verify:
+
+- `iconUrl` resolves publicly (HTTP 200) and points to an existing image file.
+- `licenseUrl`, `packageSourceUrl`, and `releaseNotes` are valid URLs.
+- Required bundled-binary docs exist in `tools\` (`LICENSE.txt`, `VERIFICATION.txt`).
+- `VERIFICATION.txt` release URL and SHA256 exactly match the MSI shipped in `tools\PrimeDictate-Online.msi`.
+
 ## Silent install and upgrade
 
 - Install: `msiexec /i PrimeDictate-<version>-Windows-Online.msi /qn /norestart`

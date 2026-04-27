@@ -106,9 +106,99 @@
                                     <ScaleTransform x:Name="Ring1Scale" CenterX="40" CenterY="40" />
                                 </Ellipse.RenderTransform>
                             </Ellipse>
-                            
+
                             <!-- Microphone Background -->
-                            <Ellipse Name="MicCircle" Width="80" Height="80" Fill="#1A1F26" Stroke="#007ACC" StrokeThickness="2" />
+                            <Ellipse Name="PulseCore" Width="80" Height="80" Fill="#FFFFFF" Opacity="0.0" IsHitTestVisible="False">
+                                <Ellipse.RenderTransform>
+                                    <ScaleTransform x:Name="PulseCoreScale" CenterX="40" CenterY="40" ScaleX="0.25" ScaleY="0.25" />
+                                </Ellipse.RenderTransform>
+                            </Ellipse>
+                            <!-- Mic = fill + separate outline so ripples can sit *under* the border (not a second ring outside it) -->
+                            <Ellipse Name="MicFace" Width="80" Height="80" Fill="#1A1F26" />
+                            <!-- Bright center glow (voice level): sits on top of dark fill, under outline + emoji -->
+                            <Ellipse Name="MicInteriorGlow"
+                                     Width="80"
+                                     Height="80"
+                                     Opacity="0"
+                                     IsHitTestVisible="False">
+                                <Ellipse.Fill>
+                                    <RadialGradientBrush GradientOrigin="0.5,0.42"
+                                                         Center="0.5,0.42"
+                                                         RadiusX="0.38"
+                                                         RadiusY="0.38">
+                                        <GradientStop Color="#F2FFFFFF" Offset="0.0" />
+                                        <GradientStop Color="#66FFFFFF" Offset="0.35" />
+                                        <GradientStop Color="#00FFFFFF" Offset="1.0" />
+                                    </RadialGradientBrush>
+                                </Ellipse.Fill>
+                                <Ellipse.RenderTransform>
+                                    <ScaleTransform x:Name="MicInteriorGlowScale" CenterX="40" CenterY="40" ScaleX="0.82" ScaleY="0.82" />
+                                </Ellipse.RenderTransform>
+                            </Ellipse>
+                            <Ellipse Name="MicOutline"
+                                     Width="80"
+                                     Height="80"
+                                     Fill="Transparent"
+                                     Stroke="#007ACC"
+                                     StrokeThickness="2" />
+
+                            <!-- Compact ripples: drawn on top of mic fill so they read as inside-out (clipped in code) -->
+                            <Ellipse Name="RippleRing0"
+                                     Width="80"
+                                     Height="80"
+                                     Fill="Transparent"
+                                     Stroke="#66FFFFFF"
+                                     StrokeThickness="1.5"
+                                     Opacity="0"
+                                     Visibility="Collapsed"
+                                     IsHitTestVisible="False">
+                                <Ellipse.RenderTransform>
+                                    <ScaleTransform x:Name="RippleRing0Scale" CenterX="40" CenterY="40" ScaleX="0.92" ScaleY="0.92" />
+                                </Ellipse.RenderTransform>
+                            </Ellipse>
+                            <Ellipse Name="RippleRing1"
+                                     Width="80"
+                                     Height="80"
+                                     Fill="Transparent"
+                                     Stroke="#59FFFFFF"
+                                     StrokeThickness="1.5"
+                                     Opacity="0"
+                                     Visibility="Collapsed"
+                                     IsHitTestVisible="False">
+                                <Ellipse.RenderTransform>
+                                    <ScaleTransform x:Name="RippleRing1Scale" CenterX="40" CenterY="40" ScaleX="0.92" ScaleY="0.92" />
+                                </Ellipse.RenderTransform>
+                            </Ellipse>
+                            <Ellipse Name="RippleRing2"
+                                     Width="80"
+                                     Height="80"
+                                     Fill="Transparent"
+                                     Stroke="#40FFFFFF"
+                                     StrokeThickness="1.5"
+                                     Opacity="0"
+                                     Visibility="Collapsed"
+                                     IsHitTestVisible="False">
+                                <Ellipse.RenderTransform>
+                                    <ScaleTransform x:Name="RippleRing2Scale" CenterX="40" CenterY="40" ScaleX="0.92" ScaleY="0.92" />
+                                </Ellipse.RenderTransform>
+                            </Ellipse>
+
+                            <Ellipse Name="PulseSurface"
+                                     Width="80"
+                                     Height="80"
+                                     Opacity="0.0"
+                                     IsHitTestVisible="False">
+                                <Ellipse.Fill>
+                                    <RadialGradientBrush RadiusX="0.65" RadiusY="0.65">
+                                        <GradientStop Color="#CFFFFFFF" Offset="0.0" />
+                                        <GradientStop Color="#66FFFFFF" Offset="0.35" />
+                                        <GradientStop Color="#00FFFFFF" Offset="1.0" />
+                                    </RadialGradientBrush>
+                                </Ellipse.Fill>
+                                <Ellipse.RenderTransform>
+                                    <ScaleTransform x:Name="PulseSurfaceScale" CenterX="40" CenterY="40" ScaleX="0.1" ScaleY="0.1" />
+                                </Ellipse.RenderTransform>
+                            </Ellipse>
                             <TextBlock Name="MicGlyph" Text="🎙" FontFamily="Segoe UI Emoji" FontSize="34" Foreground="#007ACC" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,0,0,4" />
                             <Border Name="CompactStatusBadge"
                                     Width="18"

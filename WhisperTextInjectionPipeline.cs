@@ -7,6 +7,8 @@ using SherpaOnnx;
 using SharpHook;
 using SharpHook.Data;
 using Whisper.net;
+using Whisper.net.Ggml;
+using Whisper.net.LibraryLoader;
 
 namespace PrimeDictate;
 
@@ -141,17 +143,21 @@ internal sealed class WhisperTextInjectionPipeline
     private TranscriptionBackendKind transcriptionBackend = TranscriptionBackendKind.Whisper;
     private string? selectedModelId;
     private string? configuredModelPath;
+    private bool useGpuForWhisper = true;
+    private bool? loadedWhisperGpuMode;
 
     public void UpdateConfiguration(
         TranscriptionBackendKind transcriptionBackend,
         string? selectedModelId,
-        string? configuredModelPath)
+        string? configuredModelPath,
+        bool useGpuForWhisper)
     {
         lock (this.configurationSync)
         {
             this.transcriptionBackend = transcriptionBackend;
             this.selectedModelId = string.IsNullOrWhiteSpace(selectedModelId) ? null : selectedModelId.Trim();
             this.configuredModelPath = string.IsNullOrWhiteSpace(configuredModelPath) ? null : configuredModelPath.Trim();
+            this.useGpuForWhisper = useGpuForWhisper;
         }
     }
 
@@ -344,9 +350,11 @@ internal sealed class WhisperTextInjectionPipeline
 
     private async Task<WhisperModelSession> EnsureSessionAsync()
     {
+        var configuration = this.GetConfigurationSnapshot();
         var modelPath = ModelFileLocator.ResolveOrThrow();
         if (this.session is not null &&
-            string.Equals(this.loadedModelPath, modelPath, StringComparison.OrdinalIgnoreCase))
+            string.Equals(this.loadedModelPath, modelPath, StringComparison.OrdinalIgnoreCase) &&
+            this.loadedWhisperGpuMode == configuration.UseGpuForWhisper)
         {
             return this.session;
         }
@@ -355,9 +363,11 @@ internal sealed class WhisperTextInjectionPipeline
 
         try
         {
+            configuration = this.GetConfigurationSnapshot();
             modelPath = ModelFileLocator.ResolveOrThrow();
             if (this.session is not null &&
-                string.Equals(this.loadedModelPath, modelPath, StringComparison.OrdinalIgnoreCase))
+                string.Equals(this.loadedModelPath, modelPath, StringComparison.OrdinalIgnoreCase) &&
+                this.loadedWhisperGpuMode == configuration.UseGpuForWhisper)
             {
                 return this.session;
             }
@@ -367,15 +377,18 @@ internal sealed class WhisperTextInjectionPipeline
                 await this.session.DisposeAsync().ConfigureAwait(false);
                 this.session = null;
                 this.loadedModelPath = null;
+                this.loadedWhisperGpuMode = null;
             }
 
-            AppLog.Info($"Loaded transcription backend: Whisper from {modelPath}");
+            ConfigureWhisperRuntimeOrder(configuration.UseGpuForWhisper);
+            AppLog.Info($"Loaded transcription backend: Whisper from {modelPath} ({(configuration.UseGpuForWhisper ? "GPU auto" : "CPU only")})");
             var factory = WhisperFactory.FromPath(modelPath);
             var processor = factory.CreateBuilder()
                 .WithLanguageDetection()
                 .Build();
             this.session = new WhisperModelSession(factory, processor);
             this.loadedModelPath = modelPath;
+            this.loadedWhisperGpuMode = configuration.UseGpuForWhisper;
             return this.session;
         }
         finally
@@ -487,6 +500,7 @@ internal sealed class WhisperTextInjectionPipeline
                 await this.session.DisposeAsync().ConfigureAwait(false);
                 this.session = null;
                 this.loadedModelPath = null;
+                this.loadedWhisperGpuMode = null;
             }
         }
         finally
@@ -604,8 +618,17 @@ internal sealed class WhisperTextInjectionPipeline
             return new TranscriptionConfiguration(
                 this.transcriptionBackend,
                 this.selectedModelId,
-                this.configuredModelPath);
+                this.configuredModelPath,
+                this.useGpuForWhisper);
         }
+    }
+
+    private static void ConfigureWhisperRuntimeOrder(bool useGpuForWhisper)
+    {
+        RuntimeOptions.LoadedLibrary = null;
+        RuntimeOptions.RuntimeLibraryOrder = useGpuForWhisper
+            ? [RuntimeLibrary.Cuda, RuntimeLibrary.Vulkan, RuntimeLibrary.Cpu, RuntimeLibrary.CpuNoAvx]
+            : [RuntimeLibrary.Cpu, RuntimeLibrary.CpuNoAvx];
     }
 
     private string GetConfiguredBackend() => this.GetConfigurationSnapshot().Backend switch
@@ -634,5 +657,6 @@ internal sealed class WhisperTextInjectionPipeline
     private readonly record struct TranscriptionConfiguration(
         TranscriptionBackendKind Backend,
         string? SelectedModelId,
-        string? ConfiguredModelPath);
+        string? ConfiguredModelPath,
+        bool UseGpuForWhisper);
 }

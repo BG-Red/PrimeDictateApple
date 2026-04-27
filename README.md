@@ -169,6 +169,8 @@ Chocolatey packaging is part of the same `vX.Y.Z` tag release flow so MSI, docs,
 
 The tag-triggered workflow pushes to Chocolatey only when `CHOCO_API_KEY` is present. Without that secret, the workflow still publishes release assets to GitHub and logs that Chocolatey push was skipped.
 
+For moderation retries, maintainers can repack and push locally with the same version after fixing package metadata/files. See `installer/README.md` for the local repack checklist and required moderation files.
+
 ### Silent install and update commands (Windows)
 
 - MSI install (silent): `msiexec /i PrimeDictate-Setup-vX.Y.Z.msi /qn /norestart`

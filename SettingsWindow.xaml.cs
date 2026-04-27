@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using NAudio.CoreAudioApi;
 using SharpHook.Data;
 
 namespace PrimeDictate;
@@ -10,6 +11,7 @@ internal partial class SettingsWindow : Window
 {
     private sealed record BackendChoice(TranscriptionBackendKind Kind, string Label, string Description);
     private sealed record HotkeyPrimaryOption(string Label, KeyCode KeyCode);
+    private sealed record InputDeviceOption(string? DeviceId, string Label);
 
     private static readonly IReadOnlyList<HotkeyPrimaryOption> PrimaryKeyOptions = BuildPrimaryKeyOptions();
     private static readonly IReadOnlyList<BackendChoice> BackendChoices =
@@ -48,14 +50,18 @@ internal partial class SettingsWindow : Window
 
         this.PrimaryKeyComboBox.ItemsSource = PrimaryKeyOptions;
         this.PrimaryKeyComboBox.DisplayMemberPath = nameof(HotkeyPrimaryOption.Label);
+        this.InputDeviceComboBox.DisplayMemberPath = nameof(InputDeviceOption.Label);
         this.ModelBackendComboBox.ItemsSource = BackendChoices;
         this.ModelBackendComboBox.DisplayMemberPath = nameof(BackendChoice.Label);
         this.ModelChoiceComboBox.DisplayMemberPath = nameof(WhisperModelOption.DisplayName);
 
         this.ApplyHotkeyToBuilder(this.currentHotkey);
+        this.UseGpuForWhisperCheckBox.IsChecked = settings.UseGpuForWhisper;
         this.HotkeyValueText.Text = this.currentHotkey.ToString();
         this.TrayBehaviorComboBox.SelectedIndex = settings.TrayClickBehavior == TrayClickBehavior.SingleClickOpensSettings ? 0 : 1;
         this.ExclusiveMicAccessCheckBox.IsChecked = settings.ExclusiveMicAccessWhileDictating;
+        this.InitializeInputDeviceOptions(settings.SelectedInputDeviceId);
+        this.InputGainTextBox.Text = settings.InputGainMultiplier.ToString("0.##", CultureInfo.InvariantCulture);
         this.AutoCommitSilenceSecondsTextBox.Text = settings.AutoCommitSilenceSeconds.ToString(CultureInfo.InvariantCulture);
         this.SendEnterAfterCommitCheckBox.IsChecked = settings.SendEnterAfterCommit;
         this.ReturnToStartTargetCheckBox.IsChecked = settings.ReturnToStartTargetOnCommit;
@@ -336,33 +342,6 @@ internal partial class SettingsWindow : Window
             this.UpdateWindowChrome();
             this.UpdateModelSelectionUi();
         }
-    }
-
-    private async void OnApplyGpuPresetClick(object sender, RoutedEventArgs e)
-    {
-        if (this.modelDownloadCts is not null)
-        {
-            return;
-        }
-
-        var backendChoice = BackendChoices.First(choice => choice.Kind == TranscriptionBackendKind.Whisper);
-        this.suppressBackendChoiceChanged = true;
-        this.ModelBackendComboBox.SelectedItem = backendChoice;
-        this.suppressBackendChoiceChanged = false;
-
-        this.ApplyBackendSelection(TranscriptionBackendKind.Whisper, preferredModelId: "small", configuredModelPath: null);
-        this.ShowModelDownloadMessage("GPU preset selected: Whisper + Small.");
-
-        if (this.ModelChoiceComboBox.SelectedItem is WhisperModelOption option &&
-            WhisperModelCatalog.TryResolveInstalledPath(option, out var installedPath))
-        {
-            this.SetModelPathText(installedPath);
-            this.ShowModelDownloadMessage($"GPU preset ready: using installed {option.DisplayName} model.");
-            this.UpdateModelSelectionUi();
-            return;
-        }
-
-        this.OnDownloadSelectedModelClick(sender, e);
     }
 
     private async Task DownloadSelectedWhisperModelAsync(CancellationToken cancellationToken)
@@ -834,6 +813,7 @@ internal partial class SettingsWindow : Window
         this.ModelPathLabelText.Text = this.currentBackend is TranscriptionBackendKind.Parakeet or TranscriptionBackendKind.Moonshine
             ? "Resolved model folder path"
             : "Resolved model file path";
+        this.UseGpuForWhisperCheckBox.IsEnabled = this.currentBackend == TranscriptionBackendKind.Whisper;
         this.ModelStorageHintText.Text = this.currentBackend switch
         {
             TranscriptionBackendKind.Parakeet => $"Downloaded Parakeet models are stored in {ParakeetModelCatalog.GetManagedModelsDirectory()}.",
@@ -908,7 +888,6 @@ internal partial class SettingsWindow : Window
         this.DownloadSelectedModelButton.Content = isInstalled ? "Already installed" : "Download model";
         this.DownloadSelectedModelButton.IsEnabled = !isInstalled && this.modelDownloadCts is null;
         this.BrowseModelPathButton.IsEnabled = this.modelDownloadCts is null;
-        this.ApplyGpuPresetButton.IsEnabled = this.modelDownloadCts is null;
     }
 
     private void UpdateParakeetModelSelectionUi()
@@ -961,7 +940,6 @@ internal partial class SettingsWindow : Window
         this.DownloadSelectedModelButton.Content = isInstalled ? "Already installed" : "Download model";
         this.DownloadSelectedModelButton.IsEnabled = !isInstalled && this.modelDownloadCts is null;
         this.BrowseModelPathButton.IsEnabled = this.modelDownloadCts is null;
-        this.ApplyGpuPresetButton.IsEnabled = this.modelDownloadCts is null;
     }
 
     private void UpdateMoonshineModelSelectionUi()
@@ -1014,7 +992,6 @@ internal partial class SettingsWindow : Window
         this.DownloadSelectedModelButton.Content = isInstalled ? "Already installed" : "Download model";
         this.DownloadSelectedModelButton.IsEnabled = !isInstalled && this.modelDownloadCts is null;
         this.BrowseModelPathButton.IsEnabled = this.modelDownloadCts is null;
-        this.ApplyGpuPresetButton.IsEnabled = this.modelDownloadCts is null;
     }
 
     private bool TryBuildSettings(out AppSettings settings)
@@ -1049,6 +1026,23 @@ internal partial class SettingsWindow : Window
             return false;
         }
 
+        if (!double.TryParse(
+                this.InputGainTextBox.Text.Trim(),
+                NumberStyles.Float,
+                CultureInfo.InvariantCulture,
+                out var inputGainMultiplier) ||
+            inputGainMultiplier < 0.5 ||
+            inputGainMultiplier > 4.0)
+        {
+            System.Windows.MessageBox.Show(
+                this,
+                "Input gain must be a number from 0.5 to 4.0.",
+                "Invalid input gain",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+            return false;
+        }
+
         var selectedBehavior = ((ComboBoxItem)this.TrayBehaviorComboBox.SelectedItem).Tag?.ToString();
         var selectedOverlayMode = ((ComboBoxItem)this.OverlayModeComboBox.SelectedItem).Tag?.ToString();
         this.currentHotkey = candidate;
@@ -1069,7 +1063,10 @@ internal partial class SettingsWindow : Window
             TranscriptionBackend = this.currentBackend,
             SelectedModelId = selectedModelId,
             ModelPath = resolvedModelPath,
+            UseGpuForWhisper = this.UseGpuForWhisperCheckBox.IsChecked != false,
             ExclusiveMicAccessWhileDictating = this.ExclusiveMicAccessCheckBox.IsChecked == true,
+            SelectedInputDeviceId = (this.InputDeviceComboBox.SelectedItem as InputDeviceOption)?.DeviceId,
+            InputGainMultiplier = inputGainMultiplier,
             AutoCommitSilenceSeconds = autoCommitSeconds,
             SendEnterAfterCommit = this.SendEnterAfterCommitCheckBox.IsChecked == true,
             ReturnToStartTargetOnCommit = this.ReturnToStartTargetCheckBox.IsChecked == true,
@@ -1085,6 +1082,33 @@ internal partial class SettingsWindow : Window
         };
 
         return true;
+    }
+
+    private void InitializeInputDeviceOptions(string? selectedDeviceId)
+    {
+        var options = new List<InputDeviceOption>
+        {
+            new(DeviceId: null, Label: "System default microphone")
+        };
+
+        try
+        {
+            using var enumerator = new MMDeviceEnumerator();
+            var devices = enumerator.EnumerateAudioEndPoints(DataFlow.Capture, DeviceState.Active);
+            foreach (var device in devices)
+            {
+                options.Add(new InputDeviceOption(device.ID, device.FriendlyName));
+            }
+        }
+        catch (Exception ex)
+        {
+            options.Add(new InputDeviceOption(null, $"System default microphone (device list unavailable: {ex.Message})"));
+        }
+
+        this.InputDeviceComboBox.ItemsSource = options;
+        this.InputDeviceComboBox.SelectedItem = options.FirstOrDefault(option =>
+            string.Equals(option.DeviceId, selectedDeviceId, StringComparison.Ordinal))
+            ?? options[0];
     }
 
     private bool TryResolveModelSelectionForSave(out string resolvedModelPath, out string? selectedModelId)

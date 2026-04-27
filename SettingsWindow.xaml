@@ -127,6 +127,14 @@
                                    Foreground="#555"
                                    TextWrapping="Wrap" />
 
+                        <CheckBox Name="UseGpuForWhisperCheckBox"
+                                  Margin="0,12,0,0"
+                                  Content="Use GPU acceleration for Whisper when available" />
+                        <TextBlock Margin="0,4,0,0"
+                                   Foreground="#666"
+                                   TextWrapping="Wrap"
+                                   Text="When enabled, PrimeDictate tries CUDA/Vulkan first, then falls back to CPU. When disabled, Whisper runs CPU-only." />
+
                         <TextBlock Margin="0,14,0,0"
                                    FontWeight="SemiBold"
                                    Text="Model" />
@@ -175,13 +183,8 @@
                         </Border>
 
                         <StackPanel Margin="0,12,0,0" Orientation="Horizontal">
-                            <Button Name="ApplyGpuPresetButton"
-                                    Width="130"
-                                    Content="Use GPU preset"
-                                    Click="OnApplyGpuPresetClick" />
                             <Button Name="DownloadSelectedModelButton"
                                     Width="140"
-                                    Margin="10,0,0,0"
                                     Content="Download model"
                                     Click="OnDownloadSelectedModelClick" />
                             <Button Name="CancelModelDownloadButton"
@@ -272,6 +275,18 @@
 
                         <StackPanel Margin="0,18,0,0">
                             <TextBlock Text="Microphone capture behavior" FontWeight="SemiBold" />
+                            <TextBlock Margin="0,6,0,0" Text="Input device" FontWeight="SemiBold" />
+                            <ComboBox Name="InputDeviceComboBox"
+                                      Margin="0,6,0,0"
+                                      MinHeight="32" />
+                            <StackPanel Margin="0,8,0,0" Orientation="Horizontal">
+                                <TextBlock VerticalAlignment="Center" Text="Input gain" />
+                                <TextBox Name="InputGainTextBox"
+                                         Width="58"
+                                         Margin="8,0,8,0"
+                                         VerticalContentAlignment="Center" />
+                                <TextBlock VerticalAlignment="Center" Text="x (0.5 to 4.0)" />
+                            </StackPanel>
                             <CheckBox Name="ExclusiveMicAccessCheckBox"
                                       Margin="0,6,0,0"
                                       Content="Request exclusive mic access while dictating (best effort; falls back to shared mode if unsupported)." />

@@ -44,6 +44,9 @@ internal partial class TranscriptionOverlayWindow : Window
     private DateTime startTime;
     private double currentSmoothedRms;
     private double targetRms;
+    private double compactPulseEnvelope;
+    private double compactSurfaceEnvelope;
+    private double compactRipplePhase;
     private bool particlesSeeded;
     private OverlayMode overlayMode = OverlayMode.CompactMicrophone;
     private SolidColorBrush currentStateBrush = ReadyBrush;
@@ -188,7 +191,17 @@ internal partial class TranscriptionOverlayWindow : Window
         this.RightWaveform.Visibility = isCompact ? Visibility.Collapsed : Visibility.Visible;
         this.ParticleCanvas.Visibility = isCompact ? Visibility.Collapsed : Visibility.Visible;
         this.GlowEllipse.Visibility = isCompact ? Visibility.Collapsed : Visibility.Visible;
-        this.MicCircle.Visibility = isCompact ? Visibility.Collapsed : Visibility.Visible;
+        this.Ring1.Visibility = isCompact ? Visibility.Collapsed : Visibility.Visible;
+        this.Ring2.Visibility = isCompact ? Visibility.Collapsed : Visibility.Visible;
+        var rippleVisibility = isCompact ? Visibility.Visible : Visibility.Collapsed;
+        this.RippleRing0.Visibility = rippleVisibility;
+        this.RippleRing1.Visibility = rippleVisibility;
+        this.RippleRing2.Visibility = rippleVisibility;
+        this.PulseSurface.Visibility = isCompact ? Visibility.Collapsed : Visibility.Visible;
+        this.PulseCore.Visibility = isCompact ? Visibility.Collapsed : Visibility.Visible;
+        this.MicInteriorGlow.Visibility = isCompact ? Visibility.Visible : Visibility.Collapsed;
+        this.MicFace.Visibility = Visibility.Visible;
+        this.MicOutline.Visibility = Visibility.Visible;
 
         this.HeaderRow.Height = isCompact ? new GridLength(0) : GridLength.Auto;
         this.SpacerRow.Height = isCompact ? new GridLength(0) : new GridLength(12);
@@ -266,6 +279,10 @@ internal partial class TranscriptionOverlayWindow : Window
         this.ToolTip = statusText;
         this.TimerText.Text = "00:00";
         this.timer.Stop();
+        this.compactPulseEnvelope = 0;
+        this.compactSurfaceEnvelope = 0;
+        this.compactRipplePhase = 0;
+        this.MicInteriorGlow.Opacity = 0;
         this.UpdateAudioLevel(0);
         this.UpdateVisualizerLoopState();
         this.OnVisualizerTick(null, EventArgs.Empty);
@@ -273,6 +290,12 @@ internal partial class TranscriptionOverlayWindow : Window
 
     public void UpdateAudioLevel(double rms)
     {
+        if (!this.Dispatcher.CheckAccess())
+        {
+            _ = this.Dispatcher.BeginInvoke(() => this.UpdateAudioLevel(rms));
+            return;
+        }
+
         this.targetRms = rms;
     }
 
@@ -301,6 +324,74 @@ internal partial class TranscriptionOverlayWindow : Window
         this.Ring2Scale.ScaleX = targetScale2;
         this.Ring2Scale.ScaleY = targetScale2;
         this.Ring2.Opacity = targetOpacity2;
+
+        // Compact mode gets a true center-out pulse inside the mic circle so movement is visible.
+        bool isCompact = this.overlayMode == OverlayMode.CompactMicrophone;
+        // Compact mic is small on screen: drive visibility from RMS without needing high capture gain.
+        double voiceActivity = Math.Min(1.0, this.currentSmoothedRms * (isCompact ? 34.0 : 12.0));
+        double rmsBoost = Math.Min(0.85, this.currentSmoothedRms * (isCompact ? 5.0 : 3.0));
+
+        if (isCompact)
+        {
+            // Fast attack + slow release: pulse expands quickly and lingers instead of breathing in/out.
+            this.compactPulseEnvelope = voiceActivity > this.compactPulseEnvelope
+                ? this.compactPulseEnvelope + ((voiceActivity - this.compactPulseEnvelope) * 0.72)
+                : this.compactPulseEnvelope * 0.965;
+            this.compactSurfaceEnvelope = voiceActivity > this.compactSurfaceEnvelope
+                ? this.compactSurfaceEnvelope + ((voiceActivity - this.compactSurfaceEnvelope) * 0.82)
+                : this.compactSurfaceEnvelope * 0.972;
+        }
+        else
+        {
+            this.compactPulseEnvelope = voiceActivity;
+            this.compactSurfaceEnvelope = voiceActivity;
+        }
+
+        double coreScale = (isCompact ? 0.1 : 0.2) + (this.compactPulseEnvelope * (isCompact ? 0.42 : 0.2)) + (rmsBoost * 0.25);
+        this.PulseCoreScale.ScaleX = coreScale;
+        this.PulseCoreScale.ScaleY = coreScale;
+        this.PulseCore.Opacity = Math.Min(
+            isCompact ? 0.26 : 0.18,
+            (isCompact ? 0.01 : 0.02) + (this.compactPulseEnvelope * (isCompact ? 0.18 : 0.1)));
+
+        if (isCompact)
+        {
+            // White “lit from inside” under the mic emoji — centered, calm but clearly visible when speaking.
+            var glowBreath = 0.78 + (this.compactPulseEnvelope * 0.22) + (rmsBoost * 0.12);
+            this.MicInteriorGlowScale.ScaleX = glowBreath;
+            this.MicInteriorGlowScale.ScaleY = glowBreath;
+            this.MicInteriorGlow.Opacity = Math.Clamp(
+                0.12 + (this.compactSurfaceEnvelope * 0.62) + (rmsBoost * 0.45),
+                0.0,
+                0.88);
+        }
+
+        // Full panel: radial fill glow. Compact: ripple rings instead (lighter than cranking audio gain).
+        if (!isCompact)
+        {
+            double surfaceScale = 0.06 + (this.compactSurfaceEnvelope * 0.78);
+            this.PulseSurfaceScale.ScaleX = surfaceScale;
+            this.PulseSurfaceScale.ScaleY = surfaceScale;
+            this.PulseSurface.Opacity = Math.Min(
+                0.22,
+                0.04 + (this.compactSurfaceEnvelope * 0.16));
+        }
+
+        if (isCompact)
+        {
+            const double rippleSecondsPerCycle = 2.85;
+            this.compactRipplePhase += visualizerTimer.Interval.TotalSeconds / rippleSecondsPerCycle;
+            if (this.compactRipplePhase >= 1.0)
+            {
+                this.compactRipplePhase -= Math.Floor(this.compactRipplePhase);
+            }
+
+            var intensity = Math.Clamp(
+                0.15 + (this.compactSurfaceEnvelope * 0.95) + (rmsBoost * 0.35),
+                0.0,
+                1.0);
+            this.UpdateCompactRipples(intensity);
+        }
 
         this.UpdateWaveformBounds();
     }
@@ -533,8 +624,38 @@ internal partial class TranscriptionOverlayWindow : Window
         this.Ring1Scale.CenterY = micSize / 2.0;
         this.Ring2Scale.CenterX = micSize / 2.0;
         this.Ring2Scale.CenterY = micSize / 2.0;
-        this.MicCircle.Width = micSize;
-        this.MicCircle.Height = micSize;
+        this.PulseCore.Width = micSize;
+        this.PulseCore.Height = micSize;
+        this.PulseCoreScale.CenterX = micSize / 2.0;
+        this.PulseCoreScale.CenterY = micSize / 2.0;
+        this.PulseSurface.Width = micSize;
+        this.PulseSurface.Height = micSize;
+        this.PulseSurfaceScale.CenterX = micSize / 2.0;
+        this.PulseSurfaceScale.CenterY = micSize / 2.0;
+        this.MicInteriorGlow.Width = micSize;
+        this.MicInteriorGlow.Height = micSize;
+        var glowHalf = micSize / 2.0;
+        this.MicInteriorGlowScale.CenterX = glowHalf;
+        this.MicInteriorGlowScale.CenterY = glowHalf;
+        foreach (var ripple in new[] { this.RippleRing0, this.RippleRing1, this.RippleRing2 })
+        {
+            ripple.Width = micSize;
+            ripple.Height = micSize;
+        }
+
+        var half = micSize / 2.0;
+        this.RippleRing0Scale.CenterX = half;
+        this.RippleRing0Scale.CenterY = half;
+        this.RippleRing1Scale.CenterX = half;
+        this.RippleRing1Scale.CenterY = half;
+        this.RippleRing2Scale.CenterX = half;
+        this.RippleRing2Scale.CenterY = half;
+        // Ripples sit between MicFace and MicOutline in Z-order; do not Clip here — geometry Clip + ScaleTransform
+        // can eliminate the stroke entirely in some layout/transform combinations.
+        this.MicFace.Width = micSize;
+        this.MicFace.Height = micSize;
+        this.MicOutline.Width = micSize;
+        this.MicOutline.Height = micSize;
         this.MicGlyph.FontSize = glyphFontSize;
         this.MicGlyph.Margin = isCompact ? new Thickness(0, 0, 0, 2) : new Thickness(0, 0, 0, 4);
     }
@@ -547,10 +668,58 @@ internal partial class TranscriptionOverlayWindow : Window
         var micBrush = this.overlayMode == OverlayMode.CompactMicrophone
             ? this.currentStateBrush
             : AccentBrush;
-        this.MicCircle.Stroke = micBrush;
+        this.MicOutline.Stroke = micBrush;
         this.MicGlyph.Foreground = micBrush;
         this.Ring1.Stroke = micBrush;
         this.Ring2.Stroke = micBrush;
+
+        var c = micBrush.Color;
+        var ripple0 = new SolidColorBrush(MediaColor.FromArgb(140, c.R, c.G, c.B));
+        ripple0.Freeze();
+        var ripple1 = new SolidColorBrush(MediaColor.FromArgb(115, c.R, c.G, c.B));
+        ripple1.Freeze();
+        var ripple2 = new SolidColorBrush(MediaColor.FromArgb(90, c.R, c.G, c.B));
+        ripple2.Freeze();
+        this.RippleRing0.Stroke = ripple0;
+        this.RippleRing1.Stroke = ripple1;
+        this.RippleRing2.Stroke = ripple2;
+    }
+
+    private void UpdateCompactRipples(double intensity)
+    {
+        static double RippleOpacity(double phase, double voice)
+        {
+            var t = phase - Math.Floor(phase);
+            var fade = Math.Pow(1.0 - t, 1.85);
+            // Softer rings — center glow carries most of the “voice” read.
+            return Math.Clamp(fade * (0.08 + voice * 0.5), 0.0, 0.48);
+        }
+
+        static double RippleScale(double phase)
+        {
+            var t = phase - Math.Floor(phase);
+            // Start small at center, expand outward (not a ring parked near the edge).
+            return 0.32 + (t * 0.68);
+        }
+
+        var p0 = this.compactRipplePhase;
+        var p1 = this.compactRipplePhase + (1.0 / 3.0);
+        var p2 = this.compactRipplePhase + (2.0 / 3.0);
+
+        var s0 = RippleScale(p0);
+        var s1 = RippleScale(p1);
+        var s2 = RippleScale(p2);
+
+        this.RippleRing0Scale.ScaleX = s0;
+        this.RippleRing0Scale.ScaleY = s0;
+        this.RippleRing1Scale.ScaleX = s1;
+        this.RippleRing1Scale.ScaleY = s1;
+        this.RippleRing2Scale.ScaleX = s2;
+        this.RippleRing2Scale.ScaleY = s2;
+
+        this.RippleRing0.Opacity = RippleOpacity(p0, intensity);
+        this.RippleRing1.Opacity = RippleOpacity(p1, intensity);
+        this.RippleRing2.Opacity = RippleOpacity(p2, intensity);
     }
 
     private bool ShouldCollapseToCompact()
@@ -571,7 +740,14 @@ internal partial class TranscriptionOverlayWindow : Window
 
     private void UpdateVisualizerLoopState()
     {
-        bool shouldRun = this.overlayMode == OverlayMode.FullPanel || this.timer.IsEnabled;
+        // Compact mode must animate while dictating even if the transcript timer is not running (e.g. empty transcript).
+        bool compactListening =
+            this.overlayMode == OverlayMode.CompactMicrophone &&
+            ReferenceEquals(this.currentStateBrush, RecordingBrush);
+        bool shouldRun =
+            this.overlayMode == OverlayMode.FullPanel ||
+            this.timer.IsEnabled ||
+            compactListening;
         if (shouldRun)
         {
             if (!this.visualizerTimer.IsEnabled)
