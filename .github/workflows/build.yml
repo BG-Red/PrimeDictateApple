@@ -94,7 +94,7 @@ jobs:
 
       - name: Resolve signing mode
         id: signing
-        if: github.event_name != 'pull_request' && !(github.event_name == 'workflow_dispatch' && inputs.push_only)
+        if: github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || !inputs.push_only)
         shell: pwsh
         env:
           AZURESIGNTOOL_KEYVAULT_URL: ${{ secrets.AZURESIGNTOOL_KEYVAULT_URL }}
@@ -121,7 +121,7 @@ jobs:
           }
 
       - name: Restore + build
-        if: !(github.event_name == 'workflow_dispatch' && inputs.push_only)
+        if: github.event_name != 'workflow_dispatch' || !inputs.push_only
         run: >
           dotnet build -c Release
           -p:Version=${{ steps.version.outputs.package_version }}
@@ -130,7 +130,7 @@ jobs:
           -p:InformationalVersion=${{ steps.version.outputs.informational_version }}
 
       - name: Publish (win-x64)
-        if: !(github.event_name == 'workflow_dispatch' && inputs.push_only)
+        if: github.event_name != 'workflow_dispatch' || !inputs.push_only
         shell: pwsh
         run: >
           .\scripts\Publish-Windows.ps1
@@ -140,12 +140,12 @@ jobs:
           -InformationalVersion "${{ steps.version.outputs.informational_version }}"
 
       - name: Install AzureSignTool
-        if: github.event_name != 'pull_request' && !(github.event_name == 'workflow_dispatch' && inputs.push_only) && steps.signing.outputs.enabled == 'true'
+        if: github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || !inputs.push_only) && steps.signing.outputs.enabled == 'true'
         shell: pwsh
         run: dotnet tool install --global AzureSignTool
 
       - name: Sign publish payload binaries (Azure Key Vault)
-        if: github.event_name != 'pull_request' && !(github.event_name == 'workflow_dispatch' && inputs.push_only) && steps.signing.outputs.enabled == 'true'
+        if: github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || !inputs.push_only) && steps.signing.outputs.enabled == 'true'
         shell: pwsh
         env:
           AZURESIGNTOOL_KEYVAULT_URL: ${{ secrets.AZURESIGNTOOL_KEYVAULT_URL }}
@@ -190,7 +190,7 @@ jobs:
           }
 
       - name: Build online installer
-        if: !(github.event_name == 'workflow_dispatch' && inputs.push_only)
+        if: github.event_name != 'workflow_dispatch' || !inputs.push_only
         shell: pwsh
         run: >
           .\scripts\Build-Installers.ps1 -Installer Online -SkipPublish
@@ -200,7 +200,7 @@ jobs:
           -InformationalVersion "${{ steps.version.outputs.informational_version }}"
 
       - name: Sign installer MSI (Azure Key Vault)
-        if: github.event_name != 'pull_request' && !(github.event_name == 'workflow_dispatch' && inputs.push_only) && steps.signing.outputs.enabled == 'true'
+        if: github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || !inputs.push_only) && steps.signing.outputs.enabled == 'true'
         shell: pwsh
         env:
           AZURESIGNTOOL_KEYVAULT_URL: ${{ secrets.AZURESIGNTOOL_KEYVAULT_URL }}
@@ -240,7 +240,7 @@ jobs:
           }
 
       - name: Upload build artifacts
-        if: always() && !(github.event_name == 'workflow_dispatch' && inputs.push_only)
+        if: always() && (github.event_name != 'workflow_dispatch' || !inputs.push_only)
         uses: actions/upload-artifact@v4
         with:
           name: prime-dictate-win-x64-${{ steps.version.outputs.package_version }}
@@ -250,7 +250,7 @@ jobs:
             artifacts/installer/*.nupkg
 
       - name: Prepare GitHub release assets
-        if: github.event_name == 'push' && steps.version.outputs.is_semver_tag == 'true' && !(github.event_name == 'workflow_dispatch' && inputs.push_only)
+        if: github.event_name == 'push' && steps.version.outputs.is_semver_tag == 'true' && (github.event_name != 'workflow_dispatch' || !inputs.push_only)
         id: release_assets
         shell: pwsh
         run: |
@@ -283,7 +283,7 @@ jobs:
           "asset_dir=$assetDir" >> $env:GITHUB_OUTPUT
 
       - name: Publish installers to GitHub Release
-        if: github.event_name == 'push' && steps.version.outputs.is_semver_tag == 'true' && !(github.event_name == 'workflow_dispatch' && inputs.push_only)
+        if: github.event_name == 'push' && steps.version.outputs.is_semver_tag == 'true' && (github.event_name != 'workflow_dispatch' || !inputs.push_only)
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
