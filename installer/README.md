@@ -32,6 +32,28 @@ Outputs are copied to `artifacts\installer\`. Intermediate build outputs live un
 
 Release builds also generate a Chocolatey package at `artifacts\installer\primedictate.<version>.nupkg` when `choco.exe` is available.
 
+## Chocolatey publishing
+
+PrimeDictate publishes a Chocolatey package from the same tagged release pipeline as the MSI (`vX.Y.Z` tags only).
+
+- Package id: `primedictate`
+- Community page: `https://community.chocolatey.org/packages/primedictate`
+- Source/release assets: `https://github.com/CakeRepository/PrimeDictate/releases`
+- Product overview/docs: `https://www.flowdevs.io/portfolio/project/primedictate-local-ai-dictation-app`
+
+### Maintainer flow (recommended)
+
+1. Ensure `Directory.Build.props` has the intended release version (for example `3.2.0`).
+2. Push release commit to `main`.
+3. Create and push tag `v<version>` (for example `v3.2.0`).
+4. The `build.yml` tag run will:
+   - build publish payload + online MSI,
+   - build `primedictate.<version>.nupkg`,
+   - attach both to the matching GitHub Release,
+   - push to Chocolatey when `CHOCO_API_KEY` is configured.
+
+If `CHOCO_API_KEY` is missing, the workflow still builds assets and publishes to GitHub Releases, but skips Chocolatey push.
+
 ## Silent install and upgrade
 
 - Install: `msiexec /i PrimeDictate-<version>-Windows-Online.msi /qn /norestart`

@@ -158,6 +158,17 @@ Tagged pushes that match `vX.Y.Z` keep the workflow artifact upload for CI debug
 
 Because the MSI filename includes the tag, Webflow should either link to the release page or update the direct MSI URL each time a new release tag is published.
 
+### Chocolatey release alignment
+
+Chocolatey packaging is part of the same `vX.Y.Z` tag release flow so MSI, docs, and Chocolatey stay aligned.
+
+- Chocolatey package id: `primedictate`
+- Chocolatey package source/repo: `https://github.com/CakeRepository/PrimeDictate`
+- Product overview page: `https://www.flowdevs.io/portfolio/project/primedictate-local-ai-dictation-app`
+- Official release downloads: `https://github.com/CakeRepository/PrimeDictate/releases`
+
+The tag-triggered workflow pushes to Chocolatey only when `CHOCO_API_KEY` is present. Without that secret, the workflow still publishes release assets to GitHub and logs that Chocolatey push was skipped.
+
 ### Silent install and update commands (Windows)
 
 - MSI install (silent): `msiexec /i PrimeDictate-Setup-vX.Y.Z.msi /qn /norestart`
