@@ -50,6 +50,11 @@ internal sealed class AppSettings
     [JsonConverter(typeof(JsonStringEnumConverter))]
     public OllamaMode OllamaMode { get; set; } = OllamaMode.Default;
 
+    /// <summary>
+    /// Find-and-replace pairs applied to the final transcript before optional Ollama processing and injection.
+    /// </summary>
+    public List<TranscriptReplacementRule> TranscriptReplacements { get; set; } = new();
+
     public static AppSettings CreateDefaultForFirstRun() => new()
     {
         FirstRunCompleted = false,
@@ -71,8 +76,16 @@ internal sealed class AppSettings
         EnableOllamaPostProcessing = false,
         OllamaEndpoint = "http://localhost:11434",
         OllamaModel = "gemma:2b",
-        OllamaMode = OllamaMode.Default
+        OllamaMode = OllamaMode.Default,
+        TranscriptReplacements = new List<TranscriptReplacementRule>()
     };
+}
+
+internal sealed class TranscriptReplacementRule
+{
+    public string Find { get; set; } = "";
+
+    public string Replace { get; set; } = "";
 }
 
 internal enum TrayClickBehavior

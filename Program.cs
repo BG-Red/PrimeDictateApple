@@ -107,6 +107,7 @@ internal sealed class DictationController : IAsyncDisposable
     private string ollamaEndpoint = "http://localhost:11434";
     private string ollamaModel = "gemma:2b";
     private OllamaMode ollamaMode = OllamaMode.Default;
+    private List<TranscriptReplacementRule> transcriptReplacements = new();
 
     public event Action<bool>? RecordingStateChanged;
     public event Action<bool>? ProcessingStateChanged;
@@ -130,7 +131,8 @@ internal sealed class DictationController : IAsyncDisposable
         bool enableOllamaPostProcessing = false,
         string ollamaEndpoint = "http://localhost:11434",
         string ollamaModel = "gemma:2b",
-        OllamaMode ollamaMode = OllamaMode.Default)
+        OllamaMode ollamaMode = OllamaMode.Default,
+        IReadOnlyList<TranscriptReplacementRule>? transcriptReplacements = null)
     {
         this.exclusiveMicAccessWhileDictating = exclusiveMicAccessWhileDictating;
         this.selectedInputDeviceId = string.IsNullOrWhiteSpace(selectedInputDeviceId) ? null : selectedInputDeviceId;
@@ -142,6 +144,7 @@ internal sealed class DictationController : IAsyncDisposable
         this.ollamaEndpoint = ollamaEndpoint;
         this.ollamaModel = ollamaModel;
         this.ollamaMode = ollamaMode;
+        this.ReplaceTranscriptReplacementRules(transcriptReplacements);
         this.textInjectionPipeline.UpdateConfiguration(transcriptionBackend, selectedModelId, modelPath, useGpuForWhisper);
         this.recorder.UpdateInputDevice(this.selectedInputDeviceId);
         this.recorder.UpdateInputGain(this.inputGainMultiplier);
@@ -171,7 +174,8 @@ internal sealed class DictationController : IAsyncDisposable
         bool enableOllamaPostProcessing,
         string ollamaEndpoint,
         string ollamaModel,
-        OllamaMode ollamaMode)
+        OllamaMode ollamaMode,
+        IReadOnlyList<TranscriptReplacementRule>? transcriptReplacements = null)
     {
         lock (this.configSync)
         {
@@ -185,6 +189,7 @@ internal sealed class DictationController : IAsyncDisposable
             this.ollamaEndpoint = ollamaEndpoint;
             this.ollamaModel = ollamaModel;
             this.ollamaMode = ollamaMode;
+            this.ReplaceTranscriptReplacementRules(transcriptReplacements);
         }
 
         this.textInjectionPipeline.UpdateConfiguration(transcriptionBackend, selectedModelId, modelPath, useGpuForWhisper);
@@ -470,6 +475,15 @@ internal sealed class DictationController : IAsyncDisposable
             finalTranscript = await this.textInjectionPipeline.TranscribeAsync(audio, CancellationToken.None)
                 .ConfigureAwait(false);
             finalTranscript = RemoveTrailingSilenceArtifact(finalTranscript, stopReason);
+            TranscriptReplacementRule[] replacementSnapshot;
+            lock (this.configSync)
+            {
+                replacementSnapshot = this.transcriptReplacements.Count == 0
+                    ? Array.Empty<TranscriptReplacementRule>()
+                    : this.transcriptReplacements.ToArray();
+            }
+
+            finalTranscript = TranscriptReplacement.Apply(finalTranscript, replacementSnapshot);
             if (this.activeThreadId is Guid threadId && !string.IsNullOrWhiteSpace(finalTranscript))
             {
                 this.ThreadTranscriptUpdated?.Invoke(threadId, finalTranscript);
@@ -648,6 +662,19 @@ internal sealed class DictationController : IAsyncDisposable
             SendEnterAfterCommit: sendEnterAfterCommit,
             OriginalTranscript: originalTranscript,
             OllamaSystemPrompt: ollamaSystemPrompt));
+    }
+
+    private void ReplaceTranscriptReplacementRules(IReadOnlyList<TranscriptReplacementRule>? rules)
+    {
+        if (rules is null || rules.Count == 0)
+        {
+            this.transcriptReplacements = new List<TranscriptReplacementRule>();
+            return;
+        }
+
+        this.transcriptReplacements = rules
+            .Select(r => new TranscriptReplacementRule { Find = r.Find, Replace = r.Replace })
+            .ToList();
     }
 
     private static TimeSpan NormalizeSilenceDelay(TimeSpan delay)

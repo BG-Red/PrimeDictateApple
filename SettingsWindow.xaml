@@ -2,42 +2,67 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:ClassModifier="internal"
-        Title="PrimeDictate setup"
+        Title="PrimeDictate Settings"
         Width="660"
         Height="760"
         WindowStartupLocation="CenterScreen"
         ResizeMode="CanMinimize"
-        PreviewKeyDown="OnWindowPreviewKeyDown">
-    <Grid Margin="20">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="*" />
-            <RowDefinition Height="Auto" />
-        </Grid.RowDefinitions>
+        PreviewKeyDown="OnWindowPreviewKeyDown"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        Foreground="{DynamicResource TextPrimaryBrush}">
+    <Border Background="{DynamicResource WindowBackgroundBrush}"
+            CornerRadius="12"
+            BorderBrush="{StaticResource BorderBrush}"
+            BorderThickness="1">
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
 
-        <TextBlock Name="HeaderText"
-                   FontSize="18"
-                   FontWeight="SemiBold"
-                   Text="PrimeDictate settings" />
+            <!-- Custom Title Bar -->
+            <Grid Background="Transparent" MouseLeftButtonDown="OnTitleBarMouseLeftButtonDown">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Name="HeaderText"
+                           Margin="20,16,0,16"
+                           FontSize="16"
+                           FontWeight="SemiBold"
+                           VerticalAlignment="Center"
+                           Text="PrimeDictate settings" />
+                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Top" Margin="0,8,8,0">
+                    <Button Width="32" Height="32" Content="—" Background="Transparent" BorderThickness="0" Click="OnMinimizeClick" ToolTip="Minimize" />
+                    <Button Width="32" Height="32" Content="✕" Background="Transparent" BorderThickness="0" Click="OnCloseClick" ToolTip="Close" />
+                </StackPanel>
+            </Grid>
 
-        <TextBlock Name="HeaderSubtextText"
-                   Grid.Row="1"
-                   Margin="0,8,0,0"
-                   Foreground="#555"
-                   TextWrapping="Wrap"
-                   Text="Manage your local model, hotkey, and dictation behavior." />
+            <Grid Grid.Row="1" Margin="20,0,20,20">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
 
-        <TabControl Name="SetupTabControl"
-                    Grid.Row="2"
-                    Margin="0,16,0,0"
-                    SelectionChanged="OnSetupTabSelectionChanged">
+                <TextBlock Name="HeaderSubtextText"
+                           Margin="0,0,0,0"
+                           Foreground="{StaticResource TextSecondaryBrush}"
+                           TextWrapping="Wrap"
+                           Text="Manage your local model, hotkey, and dictation behavior." />
+
+                <TabControl Name="SetupTabControl"
+                            Grid.Row="1"
+                            Margin="0,16,0,0"
+                            SelectionChanged="OnSetupTabSelectionChanged">
             <TabItem Name="WelcomeTab" Header="Overview">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel Margin="14">
                         <Border Padding="14"
-                                Background="#F4F8FF"
-                                BorderBrush="#D7E6FF"
+                                Background="{StaticResource HeroCardBackgroundBrush}"
+                                BorderBrush="{StaticResource HeroCardBorderBrush}"
                                 BorderThickness="1"
                                 CornerRadius="10">
                             <StackPanel>
@@ -45,7 +70,7 @@
                                            FontWeight="SemiBold"
                                            Text="Built for fast Windows text editing" />
                                 <TextBlock Margin="0,8,0,0"
-                                           Foreground="#444"
+                                           Foreground="{StaticResource TextSecondaryBrush}"
                                            TextWrapping="Wrap"
                                            Text="PrimeDictate is tuned for dictating into editors, chat apps, documentation tools, terminals, and browser text fields. You pick a local transcription backend and model, set your hotkey, and the app types the final transcript directly into the focused app." />
                             </StackPanel>
@@ -58,8 +83,8 @@
 
                         <Border Margin="0,10,0,0"
                                 Padding="12"
-                                Background="#FAFAFA"
-                                BorderBrush="#E1E1E1"
+                                Background="{StaticResource SurfaceElevatedBrush}"
+                                BorderBrush="{StaticResource BorderBrush}"
                                 BorderThickness="1"
                                 CornerRadius="8">
                             <TextBlock TextWrapping="Wrap">
@@ -71,8 +96,8 @@
 
                         <Border Margin="0,10,0,0"
                                 Padding="12"
-                                Background="#FAFAFA"
-                                BorderBrush="#E1E1E1"
+                                Background="{StaticResource SurfaceElevatedBrush}"
+                                BorderBrush="{StaticResource BorderBrush}"
                                 BorderThickness="1"
                                 CornerRadius="8">
                             <TextBlock TextWrapping="Wrap">
@@ -84,8 +109,8 @@
 
                         <Border Margin="0,10,0,0"
                                 Padding="12"
-                                Background="#FAFAFA"
-                                BorderBrush="#E1E1E1"
+                                Background="{StaticResource SurfaceElevatedBrush}"
+                                BorderBrush="{StaticResource BorderBrush}"
                                 BorderThickness="1"
                                 CornerRadius="8">
                             <TextBlock TextWrapping="Wrap">
@@ -97,7 +122,7 @@
 
                         <TextBlock Name="WelcomeFooterText"
                                    Margin="0,18,0,0"
-                                   Foreground="#555"
+                                   Foreground="{StaticResource TextSecondaryBrush}"
                                    TextWrapping="Wrap"
                                    Text="You can revisit any of these settings from the tray icon later." />
                     </StackPanel>
@@ -111,7 +136,7 @@
                                     FontWeight="SemiBold"
                                    Text="Choose a transcription backend and model" />
                         <TextBlock Margin="0,8,0,0"
-                                   Foreground="#555"
+                                   Foreground="{StaticResource TextSecondaryBrush}"
                                    TextWrapping="Wrap"
                                    Text="PrimeDictate supports multiple local speech engines. Pick the backend you want to use, then choose the model that fits your Windows workflow and download it locally or browse to an existing install." />
 
@@ -124,14 +149,14 @@
                                   SelectionChanged="OnModelBackendChanged" />
                         <TextBlock Name="ModelBackendDescriptionText"
                                    Margin="0,8,0,0"
-                                   Foreground="#555"
+                                   Foreground="{StaticResource TextSecondaryBrush}"
                                    TextWrapping="Wrap" />
 
                         <CheckBox Name="UseGpuForWhisperCheckBox"
                                   Margin="0,12,0,0"
                                   Content="Use GPU acceleration for Whisper when available" />
                         <TextBlock Margin="0,4,0,0"
-                                   Foreground="#666"
+                                   Foreground="{StaticResource TextMutedBrush}"
                                    TextWrapping="Wrap"
                                    Text="When enabled, PrimeDictate tries CUDA/Vulkan first, then falls back to CPU. When disabled, Whisper runs CPU-only." />
 
@@ -145,8 +170,8 @@
 
                         <Border Margin="0,12,0,0"
                                 Padding="14"
-                                Background="#FAFAFA"
-                                BorderBrush="#E1E1E1"
+                                Background="{StaticResource SurfaceElevatedBrush}"
+                                BorderBrush="{StaticResource BorderBrush}"
                                 BorderThickness="1"
                                 CornerRadius="10">
                             <StackPanel>
@@ -157,19 +182,19 @@
                                     <Border Name="RecommendedBadgeBorder"
                                             DockPanel.Dock="Right"
                                             Padding="8,3"
-                                            Background="#DCEBFF"
+                                            Background="{StaticResource RecommendedBadgeBackgroundBrush}"
                                             CornerRadius="999"
                                             Visibility="Collapsed">
                                         <TextBlock Text="Recommended"
                                                    FontSize="11"
                                                    FontWeight="SemiBold"
-                                                   Foreground="#1E4E8C" />
+                                                   Foreground="{StaticResource RecommendedBadgeForegroundBrush}" />
                                     </Border>
                                 </DockPanel>
 
                                 <TextBlock Name="ModelChoiceMetaText"
                                            Margin="0,8,0,0"
-                                           Foreground="#555" />
+                                           Foreground="{StaticResource TextSecondaryBrush}" />
 
                                 <TextBlock Name="ModelChoiceDescriptionText"
                                            Margin="0,8,0,0"
@@ -177,7 +202,7 @@
 
                                 <TextBlock Name="ModelChoiceStatusText"
                                            Margin="0,12,0,0"
-                                           Foreground="#0B5C8E"
+                                           Foreground="{StaticResource StatusInfoForegroundBrush}"
                                            TextWrapping="Wrap" />
                             </StackPanel>
                         </Border>
@@ -209,7 +234,7 @@
 
                         <TextBlock Name="ModelDownloadStatusText"
                                    Margin="0,8,0,0"
-                                   Foreground="#555"
+                                   Foreground="{StaticResource TextSecondaryBrush}"
                                    TextWrapping="Wrap"
                                    Visibility="Collapsed" />
 
@@ -223,7 +248,7 @@
                                   ToolTip="Use a downloaded model or browse to an existing local model install." />
                         <TextBlock Name="ModelStorageHintText"
                                    Margin="0,8,0,0"
-                                   Foreground="#666"
+                                   Foreground="{StaticResource TextMutedBrush}"
                                    TextWrapping="Wrap" />
                     </StackPanel>
                 </ScrollViewer>
@@ -259,7 +284,7 @@
                             </DockPanel>
                             <TextBlock Name="HotkeyHintText"
                                        Margin="0,6,0,0"
-                                       Foreground="#555"
+                                       Foreground="{StaticResource TextSecondaryBrush}"
                                        Text="Use Ctrl/Shift/Alt + key. Three-key combos like Ctrl+Shift+Space are supported." />
                         </StackPanel>
 
@@ -302,7 +327,7 @@
                                     <ComboBoxItem Content="Full transcript panel overlay" Tag="Full" />
                                 </ComboBox>
                                 <TextBlock Margin="0,6,0,0"
-                                           Foreground="#666"
+                                           Foreground="{StaticResource TextMutedBrush}"
                                            TextWrapping="Wrap"
                                            Text="Compact keeps a small ready/listening microphone on screen. Full shows the larger transcript panel while you dictate." />
                             </StackPanel>
@@ -324,7 +349,7 @@
                                       Margin="0,10,0,0"
                                       Content="Play PrimeDictate start/stop tones when recording begins and capture ends." />
                             <TextBlock Margin="0,6,0,0"
-                                       Foreground="#666"
+                                       Foreground="{StaticResource TextMutedBrush}"
                                        TextWrapping="Wrap"
                                        Text="When enabled, PrimeDictate first tries a safe direct write back to the original edit control on Windows. If that is not available, it brings the original window back and types there instead of skipping the commit." />
                         </StackPanel>
@@ -356,8 +381,42 @@
                             </StackPanel>
                         </StackPanel>
 
+                        <StackPanel Margin="0,18,0,0">
+                            <TextBlock Text="Custom word replacements" FontWeight="SemiBold" />
+                            <TextBlock Margin="0,6,0,0"
+                                       Foreground="{StaticResource TextMutedBrush}"
+                                       TextWrapping="Wrap"
+                                       Text="After transcription, replace phrases in the final text before optional AI polish and typing. Matching is case-insensitive; longer phrases are applied first." />
+                            <DataGrid Name="ReplacementRulesDataGrid"
+                                      Height="168"
+                                      Margin="0,8,0,0"
+                                      AutoGenerateColumns="False"
+                                      CanUserAddRows="False"
+                                      HeadersVisibility="Column">
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="Find"
+                                                        Binding="{Binding Find, UpdateSourceTrigger=PropertyChanged}"
+                                                        Width="*" />
+                                    <DataGridTextColumn Header="Replace with"
+                                                        Binding="{Binding Replace, UpdateSourceTrigger=PropertyChanged}"
+                                                        Width="*" />
+                                </DataGrid.Columns>
+                            </DataGrid>
+                            <StackPanel Margin="0,8,0,0" Orientation="Horizontal">
+                                <Button Name="AddReplacementRuleButton"
+                                        Width="88"
+                                        Content="Add rule"
+                                        Click="OnAddReplacementRuleClick" />
+                                <Button Name="RemoveReplacementRuleButton"
+                                        Width="120"
+                                        Margin="10,0,0,0"
+                                        Content="Remove selected"
+                                        Click="OnRemoveReplacementRuleClick" />
+                            </StackPanel>
+                        </StackPanel>
+
                         <TextBlock Margin="0,18,0,0"
-                                    Foreground="#666"
+                                    Foreground="{StaticResource TextMutedBrush}"
                                     TextWrapping="Wrap"
                                     Text="Press your hotkey globally to start dictation. Live preview stays in the overlay, then the final transcript is typed once after silence or when you stop manually." />
                     </StackPanel>
@@ -365,36 +424,38 @@
             </TabItem>
         </TabControl>
 
-        <Grid Grid.Row="3" Margin="0,16,0,0">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="Auto" />
-            </Grid.ColumnDefinitions>
+                <Grid Grid.Row="2" Margin="0,16,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
 
-            <Button Name="HistoryButton"
-                    Width="120"
-                    Content="View history"
-                    Click="OnHistoryClick" />
+                    <Button Name="HistoryButton"
+                            Width="120"
+                            Content="View history"
+                            Click="OnHistoryClick" />
 
-            <StackPanel Grid.Column="2" Orientation="Horizontal">
-                <Button Name="BackButton"
-                        Width="92"
-                        Margin="0,0,10,0"
-                        Content="Back"
-                        Click="OnBackClick"
-                        Visibility="Collapsed" />
-                <Button Name="CancelButton"
-                        Width="92"
-                        Margin="0,0,10,0"
-                        Content="Cancel"
-                        Click="OnCancelClick" />
-                <Button Name="SaveButton"
-                        Width="92"
-                        IsDefault="True"
-                        Content="Save"
-                        Click="OnSaveClick" />
-            </StackPanel>
+                    <StackPanel Grid.Column="2" Orientation="Horizontal">
+                        <Button Name="BackButton"
+                                Width="92"
+                                Margin="0,0,10,0"
+                                Content="Back"
+                                Click="OnBackClick"
+                                Visibility="Collapsed" />
+                        <Button Name="CancelButton"
+                                Width="92"
+                                Margin="0,0,10,0"
+                                Content="Cancel"
+                                Click="OnCancelClick" />
+                        <Button Name="SaveButton"
+                                Width="92"
+                                IsDefault="True"
+                                Content="Save"
+                                Click="OnSaveClick" />
+                    </StackPanel>
+                </Grid>
+            </Grid>
         </Grid>
-    </Grid>
+    </Border>
 </Window>

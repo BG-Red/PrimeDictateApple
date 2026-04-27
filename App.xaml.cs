@@ -77,7 +77,8 @@ public partial class App : System.Windows.Application
             this.settings.EnableOllamaPostProcessing,
             this.settings.OllamaEndpoint,
             this.settings.OllamaModel,
-            this.settings.OllamaMode);
+            this.settings.OllamaMode,
+            this.settings.TranscriptReplacements ?? new List<TranscriptReplacementRule>());
         this.dictationController.RecordingStateChanged += this.OnRecordingStateChanged;
         this.dictationController.ProcessingStateChanged += this.OnProcessingStateChanged;
         this.dictationController.ThreadStarted += this.OnThreadStarted;
@@ -253,7 +254,8 @@ public partial class App : System.Windows.Application
             newSettings.EnableOllamaPostProcessing,
             newSettings.OllamaEndpoint,
             newSettings.OllamaModel,
-            newSettings.OllamaMode);
+            newSettings.OllamaMode,
+            newSettings.TranscriptReplacements ?? new List<TranscriptReplacementRule>());
         this.UpdateTranscriptionOverlay();
     }
 

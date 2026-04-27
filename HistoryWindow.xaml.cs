@@ -55,4 +55,22 @@ internal partial class HistoryWindow : Window
         sb.AppendLine(entry.Transcript);
         System.Windows.Clipboard.SetText(sb.ToString());
     }
+
+    private void OnTitleBarMouseLeftButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        if (e.ButtonState == System.Windows.Input.MouseButtonState.Pressed)
+        {
+            this.DragMove();
+        }
+    }
+
+    private void OnMinimizeClick(object sender, RoutedEventArgs e)
+    {
+        this.WindowState = WindowState.Minimized;
+    }
+
+    private void OnCloseClick(object sender, RoutedEventArgs e)
+    {
+        this.Close();
+    }
 }

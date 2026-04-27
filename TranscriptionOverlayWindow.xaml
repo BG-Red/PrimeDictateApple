@@ -16,8 +16,8 @@
             Padding="0"
             CornerRadius="12"
             BorderThickness="1"
-            BorderBrush="#333333"
-            Background="#0D1117"
+            BorderBrush="{DynamicResource BorderBrush}"
+            Background="{DynamicResource WindowBackgroundBrush}"
             MouseLeftButtonDown="OnBorderMouseLeftButtonDown">
         <Grid>
             <Grid.RowDefinitions>
@@ -223,7 +223,7 @@
                 </Grid>
 
                 <!-- Transcript Card -->
-                <Border Name="TranscriptCard" Grid.Row="1" Background="White" CornerRadius="8" Padding="16" MinHeight="100">
+                <Border Name="TranscriptCard" Grid.Row="1" Background="{StaticResource SurfaceElevatedBrush}" CornerRadius="8" Padding="16" MinHeight="100">
                     <Grid>
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
@@ -232,11 +232,11 @@
 
                         <DockPanel Margin="0,0,0,10">
                             <Ellipse Name="StateDot" Width="9" Height="9" Margin="0,0,8,0" VerticalAlignment="Center" Fill="#DC3545" />
-                            <TextBlock Name="HeaderText" FontSize="13" FontWeight="SemiBold" Foreground="#111827" Text="Listening" />
+                            <TextBlock Name="HeaderText" FontSize="13" FontWeight="SemiBold" Foreground="{StaticResource TextPrimaryBrush}" Text="Listening" />
                         </DockPanel>
 
                         <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                            <TextBlock Name="TranscriptText" FontSize="14" LineHeight="20" TextWrapping="Wrap" Foreground="#111827" Text="Listening..." />
+                            <TextBlock Name="TranscriptText" FontSize="14" LineHeight="20" TextWrapping="Wrap" Foreground="{StaticResource TextPrimaryBrush}" Text="Listening..." />
                         </ScrollViewer>
                     </Grid>
                 </Border>

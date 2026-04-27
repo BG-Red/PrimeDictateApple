@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
@@ -39,6 +40,7 @@ internal partial class SettingsWindow : Window
     private readonly bool isOverlaySticky;
     private CancellationTokenSource? modelDownloadCts;
     private TranscriptionBackendKind currentBackend;
+    private readonly ObservableCollection<TranscriptReplacementRule> transcriptReplacementRules = new();
 
     internal SettingsWindow(AppSettings settings, bool isFirstRun)
     {
@@ -85,6 +87,17 @@ internal partial class SettingsWindow : Window
             this.OllamaModeComboBox.SelectedIndex = 0;
         }
 
+        foreach (var rule in settings.TranscriptReplacements ?? [])
+        {
+            this.transcriptReplacementRules.Add(new TranscriptReplacementRule
+            {
+                Find = rule.Find,
+                Replace = rule.Replace
+            });
+        }
+
+        this.ReplacementRulesDataGrid.ItemsSource = this.transcriptReplacementRules;
+
         this.WelcomeTab.Header = isFirstRun ? "Welcome" : "Overview";
         this.HeaderText.Text = isFirstRun ? "PrimeDictate first-run setup" : "PrimeDictate settings";
         this.WelcomeFooterText.Text = isFirstRun
@@ -108,6 +121,24 @@ internal partial class SettingsWindow : Window
         this.modelDownloadCts?.Dispose();
         this.modelDownloadCts = null;
         base.OnClosed(e);
+    }
+
+    private void OnTitleBarMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (e.ButtonState == MouseButtonState.Pressed)
+        {
+            this.DragMove();
+        }
+    }
+
+    private void OnMinimizeClick(object sender, RoutedEventArgs e)
+    {
+        this.WindowState = WindowState.Minimized;
+    }
+
+    private void OnCloseClick(object sender, RoutedEventArgs e)
+    {
+        this.Close();
     }
 
     private void InitializeModelSelection(AppSettings settings)
@@ -1078,10 +1109,29 @@ internal partial class SettingsWindow : Window
             EnableOllamaPostProcessing = this.EnableOllamaCheckBox.IsChecked == true,
             OllamaEndpoint = this.OllamaEndpointTextBox.Text.Trim(),
             OllamaModel = this.OllamaModelTextBox.Text.Trim(),
-            OllamaMode = selectedOllamaMode
+            OllamaMode = selectedOllamaMode,
+            TranscriptReplacements = this.transcriptReplacementRules
+                .Where(r => !string.IsNullOrWhiteSpace(r.Find))
+                .Select(r => new TranscriptReplacementRule { Find = r.Find.Trim(), Replace = r.Replace.Trim() })
+                .ToList()
         };
 
         return true;
+    }
+
+    private void OnAddReplacementRuleClick(object sender, RoutedEventArgs e)
+    {
+        var rule = new TranscriptReplacementRule();
+        this.transcriptReplacementRules.Add(rule);
+        this.ReplacementRulesDataGrid.SelectedItem = rule;
+    }
+
+    private void OnRemoveReplacementRuleClick(object sender, RoutedEventArgs e)
+    {
+        if (this.ReplacementRulesDataGrid.SelectedItem is TranscriptReplacementRule selected)
+        {
+            this.transcriptReplacementRules.Remove(selected);
+        }
     }
 
     private void InitializeInputDeviceOptions(string? selectedDeviceId)
