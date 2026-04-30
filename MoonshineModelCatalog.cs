@@ -40,7 +40,7 @@ internal readonly record struct MoonshineModelDownloadProgress(string Stage, lon
 internal static class MoonshineModelCatalog
 {
     private static readonly string ManagedModelsDirectory = Path.Combine(
-        ModelFileLocator.GetManagedModelsDirectory(),
+        ModelStorage.GetManagedModelsDirectory(),
         "moonshine");
 
     public static IReadOnlyList<MoonshineModelOption> Options { get; } =

@@ -111,5 +111,4 @@ Before pushing a moderated rebuild, verify:
 ## End-user notes
 
 - Install is **per machine** (`Scope="perMachine"`) under **Program Files**.
-- **Visual C++ Redistributable** may be required for Whisper native code; see [Whisper.net](https://www.nuget.org/packages/Whisper.net).
-- Downloaded models remain subject to their publishers’ terms; redistribute only in compliance with those terms.
+- Downloaded ONNX models remain subject to their publishers' terms; redistribute only in compliance with those terms.

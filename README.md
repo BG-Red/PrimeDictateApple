@@ -38,14 +38,14 @@
 - **Launch at login**: Installers enable automatic startup by default so PrimeDictate is ready after a reboot. Silent MSI and Chocolatey installs can opt out.
 - **Audio**: Windows default capture device via NAudio **WASAPI** (`WasapiCapture`), resampled to **16 kHz, 16-bit, mono PCM** for local transcription engines.
 - **Mic isolation mode (best effort)**: Optional exclusive-capture setting can block other apps from the mic on supported devices; if exclusive capture fails, PrimeDictate automatically falls back to shared mode and continues dictation.
-- **Inference**: [Whisper.net](https://www.nuget.org/packages/Whisper.net) `1.9.0` for GGML Whisper models plus [sherpa-onnx](https://www.nuget.org/packages/org.k2fsa.sherpa.onnx) for Parakeet ONNX models.
+- **Inference**: A shared transcription engine abstraction with Whisper, Parakeet, and Moonshine ONNX models through [sherpa-onnx](https://www.nuget.org/packages/org.k2fsa.sherpa.onnx).
 - **Injection**: [SharpHook](https://www.nuget.org/packages/SharpHook) `EventSimulator` for Unicode text entry (no synthetic paste, no clipboard round-trip on the hot path).
 
 ## Requirements
 
 - [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0) (or a compatible SDK that can build `net8.0` projects).
 - **Windows** is the primary target (WASAPI capture path). Other platforms may require a different capture implementation.
-- For CPU Whisper at runtime, the published **Whisper.net** requirements apply (for example, Visual C++ redistributable and instruction-set expectations); see the [Whisper.net readme](https://www.nuget.org/packages/Whisper.net).
+- The transcription backend uses sherpa-onnx model folders, so each model install must include the required ONNX files and tokens file for that backend.
 
 ---
 
@@ -64,27 +64,25 @@ The built-in Whisper catalog currently includes:
 
 | Model | Typical use |
 |------|------|
-| `Tiny` | Fastest setup and lowest disk usage |
-| `Base` | Light Windows laptops and short dictation |
-| `Small` | **Recommended** balanced day-to-day editing workflow |
-| `Medium` | Better accuracy with more RAM/CPU |
-| `Large v3 Turbo` | **Recommended** highest accuracy for polished text on modern PCs |
+| `Tiny English ONNX` | **Recommended** fastest setup and lowest CPU cost for English dictation |
+| `Base English ONNX` | **Recommended** balanced English dictation on CPU |
+| `Distil Small English ONNX` | Faster distilled English model for longer sessions |
+| `Small English ONNX` | Higher English accuracy with more compute cost |
+| `Tiny/Base/Small Multilingual ONNX` | Non-English dictation with the same ONNX folder layout |
 
-When you download a Whisper model inside the app, PrimeDictate stores it under **`%LocalAppData%\PrimeDictate\models`** and saves the exact file path in settings.
+When you download a Whisper model inside the app, PrimeDictate stores it under **`%LocalAppData%\PrimeDictate\models\whisper`** and saves the exact folder path in settings.
 
-The runtime resolves model files in this order:
+PrimeDictate expects a Whisper ONNX model folder containing:
 
-1. Path in the `PRIME_DICTATE_MODEL` environment variable (full path to the `.bin` file).
-2. `%LocalAppData%\PrimeDictate\models\...` for managed downloads.
-3. `./models\ggml-large-v3-turbo.bin` (relative to the process current working directory, when that path exists).
-4. `AppContext.BaseDirectory\models\ggml-large-v3-turbo.bin` (useful if you copy the model next to the published app or install the bundled MSI).
-5. A walk upward from the current directory to find `models\ggml-large-v3-turbo.bin` (helps when `dotnet run` uses a `bin\...` working directory but the repository root contains `models\`).
+- `*-encoder.int8.onnx` or `*-encoder.onnx`
+- `*-decoder.int8.onnx` or `*-decoder.onnx`
+- `*-tokens.txt`
 
-If you prefer to manage files yourself, you can still browse to any Whisper GGML `.bin` model from the [ggerganov/whisper.cpp](https://huggingface.co/ggerganov/whisper.cpp) collection on Hugging Face.
+The runtime checks managed downloads, installed app-local models under `models\whisper`, and repo-local `models\whisper` folders during development.
 
 ### Parakeet
 
-PrimeDictate also supports a first non-Whisper backend through **Parakeet + sherpa-onnx**. The current catalog starts with:
+PrimeDictate also supports **Parakeet ONNX via sherpa-onnx**. The current catalog starts with:
 
 | Model | Typical use |
 |------|------|
@@ -101,7 +99,7 @@ You can either download the managed Parakeet model in-app or browse to an existi
 
 ### Moonshine
 
-PrimeDictate also supports **Moonshine via sherpa-onnx** for another lightweight local English path. The current catalog includes:
+PrimeDictate also supports **Moonshine ONNX via sherpa-onnx** for another lightweight local English path. The current catalog includes:
 
 | Model | Typical use |
 |------|------|
@@ -117,14 +115,51 @@ Downloaded Moonshine models are stored under **`%LocalAppData%\PrimeDictate\mode
 
 You can either download the managed Moonshine model in-app or browse to an existing extracted model folder.
 
+### Qualcomm QNN (Experimental)
+
+PrimeDictate now includes an **experimental Qualcomm QNN backend** for **native Windows ARM64** builds. This backend does **not** use sherpa at runtime. Instead, it drives the Moonshine ONNX stages directly through **ONNX Runtime** and can attempt **QNN HTP / Qualcomm NPU** execution when the following are all true:
+
+- the process is running as **Windows ARM64**
+- the build contains the QNN runtime assets (`QnnHtp.dll`, `onnxruntime_providers_qnn.dll`, `QnnSystem.dll`)
+- the selected Moonshine model folder is present
+- the Moonshine stages can be created and run with **CPU fallback disabled**
+
+The Qualcomm backend reuses the same Moonshine model folder layout:
+
+- `preprocess.onnx`
+- `encode.int8.onnx`
+- `uncached_decode.int8.onnx`
+- `cached_decode.int8.onnx`
+- `tokens.txt`
+
+Optionally, maintainers can place **QNN-prepared artifacts** under a `qnn` subfolder inside that Moonshine model directory:
+
+- `qnn\preprocess.qdq.onnx`
+- `qnn\encode.qdq.onnx`
+- `qnn\uncached_decode.qdq.onnx`
+- `qnn\cached_decode.qdq.onnx`
+
+If those `qnn` artifacts are present, PrimeDictate prefers them for the Qualcomm backend. If strict validation is **off** and QNN HTP session creation still fails, PrimeDictate falls back to **pure ONNX Runtime CPU** for that backend and logs the actual runtime path. If strict validation is **on**, the backend fails loudly instead of silently using CPU.
+
+Maintainer knobs for the experimental Qualcomm backend:
+
+- `PRIMEDICTATE_QNN_STRICT=1`: require QNN HTP session creation and inference with CPU fallback disabled
+- `PRIMEDICTATE_QNN_CONTEXT_CACHE=0|1`: disable or enable QNN context caching (default `1`)
+- `PRIMEDICTATE_QNN_CONTEXT_EMBED=0|1`: control QNN context embed mode (default `1`)
+- `PRIMEDICTATE_QNN_PROFILE=basic|detailed|optrace`: optional QNN profiling, off by default
+- `PRIMEDICTATE_QNN_PROFILE_DIR=<path>`: where profiling CSV output should be written
+
+**Important:** the current managed Moonshine download is still the baseline Moonshine folder, not a pre-validated QNN bundle. The Qualcomm backend can prove strict QNN HTP activation only when the selected model stages actually load and run on QNN with CPU fallback disabled.
+
 **Example (PowerShell, from repo root)**, downloading the default bundled model manually:
 
 ```powershell
-New-Item -ItemType Directory -Force -Path "models" | Out-Null
-Invoke-WebRequest -Uri "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin" -OutFile "models/ggml-large-v3-turbo.bin"
+New-Item -ItemType Directory -Force -Path "models\whisper" | Out-Null
+Invoke-WebRequest -Uri "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-whisper-base.en.tar.bz2" -OutFile "models\whisper\sherpa-onnx-whisper-base.en.tar.bz2"
+tar -xjf "models\whisper\sherpa-onnx-whisper-base.en.tar.bz2" -C "models\whisper"
 ```
 
-Larger models take longer to download and load. The first transcription after launch may still do noticeable disk I/O while Whisper initializes.
+Larger models take longer to download and load. The first transcription after launch may still do noticeable disk I/O while the ONNX runtime initializes.
 
 </details>
 
@@ -147,7 +182,7 @@ This repo targets **64-bit Windows** only. Maintainers build **MSI packages** wi
 
 Outputs: `artifacts\installer\`. Version comes from `Directory.Build.props`.
 
-See [installer/README.md](installer/README.md) for details. Redistribute the GGML model only in compliance with its license/terms.
+See [installer/README.md](installer/README.md) for details. Redistribute ONNX model files only in compliance with their license/terms.
 
 ### GitHub Releases and Webflow links
 
@@ -193,6 +228,7 @@ PrimeDictate now runs as a **WPF tray app** (no console window in normal use):
 - **First launch**: If `%LocalAppData%\PrimeDictate\settings.json` is missing or incomplete, a guided setup window appears with **Welcome**, **Model**, **Dictation**, **Replacements**, and **Impact** tabs.
 - **Configurable hotkey**: Global hotkey is loaded from saved settings and applied to `GlobalHotkeyListener` at startup (default remains `Ctrl+Shift+Space` until changed).
 - **Backend picker + download**: Setup and Settings include curated Whisper, Parakeet, and Moonshine model options, local download progress, and a manual browse fallback.
+- **Experimental ARM64 QNN path**: Native `win-arm64` builds can expose an experimental Qualcomm QNN backend that drives Moonshine through ONNX Runtime with explicit QNN-versus-CPU diagnostics.
 - **Runtime model switching**: Changing the selected backend or model causes the next transcription session to reload the correct engine automatically.
 - **Preview settings**: Setup window includes the overlay style, silence auto-commit delay, optional coding-mode Enter key, PrimeDictate audio cues, and mic capture behavior.
 - **Impact dashboard**: Settings includes a local stats tab with productivity cards, a 14-day words chart, and milestone achievements.
@@ -239,10 +275,9 @@ The app starts in the tray. On first launch, complete setup, then focus another 
 
 | Mechanism | Purpose |
 |-----------|---------|
-| `PRIME_DICTATE_MODEL` | Absolute path to the active GGML Whisper model file. PrimeDictate sets this process-locally from saved settings only when the Whisper backend is selected. |
 | `--enable-launch-at-login` / `--disable-launch-at-login` | Command line switches that add or remove the Windows Run entry for PrimeDictate. Machine-wide entries require an elevated shell to disable. |
-| `WhisperProcessorBuilder` | Language detection and other inference options are set in `WhisperTextInjectionPipeline` (`WithLanguageDetection()`, etc.). |
 | User settings + first-run | Stored at `%LocalAppData%\PrimeDictate\settings.json` with `FirstRunCompleted`, dictation hotkey, selected backend, selected model id, resolved model path, optional exclusive mic capture toggle, overlay style, silence auto-commit delay, return-to-original-target toggle, audio cue toggle, overlay placement, coding-mode Enter toggle, and baseline typing speed for impact estimates. |
+| `PRIMEDICTATE_QNN_*` env vars | Maintainer and validation controls for the experimental Qualcomm QNN backend, including strict no-CPU-fallback mode, context caching, and optional QNN profiling output. |
 
 ![Dictation Settings](assets/settings_dictation.png)
 
@@ -256,10 +291,54 @@ The app starts in the tray. On first launch, complete setup, then focus another 
 | Hotkey | SharpHook `SimpleGlobalHook`, keyboard only; gesture loaded from settings and matched on `KeyPressed`. |
 | Capture | NAudio `WasapiCapture` + `MediaFoundationResampler` to 16 kHz mono PCM. |
 | Live preview | `DictationController.LivePreviewLoopAsync` snapshots the growing PCM buffer, re-runs the selected local backend for the overlay, and watches recent RMS level for silence. |
-| Transcription | Whisper uses `WhisperFactory.FromPath` → `WhisperProcessor` → `ProcessAsync`; Parakeet uses sherpa-onnx `OfflineRecognizer` with the NeMo transducer bundle files. |
+| Transcription | `TranscriptionEngineHost` selects and owns the active engine. Whisper, Parakeet, and Moonshine use ONNX models through sherpa-onnx `OfflineRecognizer`. The experimental Qualcomm backend drives Moonshine stages directly with ONNX Runtime and can attempt strict QNN HTP execution on native Windows ARM64. |
 | Overlay | `TranscriptionOverlayWindow` is topmost, non-activating, and click-through so the target editor keeps focus. |
 | Typing | `WhisperTextInjectionPipeline.TranscribeAsync` builds the final transcript, then `InjectTextToTarget` sends it once; optional coding mode follows with `VcEnter`. |
 | Target safety + pointer cue | `WindowsInputHelpers.cs` captures the foreground window and focused control at recording start, can optionally restore that target for final injection, and uses Windows Mouse Sonar if enabled. |
+
+### Experimental Qualcomm QNN maintainer workflow
+
+Build the app and native ARM64 publish output as usual:
+
+```powershell
+dotnet build PrimeDictate.sln
+.\scripts\Publish-Windows.ps1 -RuntimeIdentifier win-arm64
+```
+
+To prepare Moonshine artifacts for the experimental QNN backend, use the maintainer-only scaffold in [scripts/qnn/quantize_moonshine_for_qnn.py](scripts/qnn/quantize_moonshine_for_qnn.py). It expects stage-specific calibration data in `.npz` files and writes the generated QDQ artifacts into the Moonshine model folder's `qnn` subdirectory.
+
+To run the built-in backend smoke validation after a build:
+
+```powershell
+$moonshineDir = Join-Path $env:LOCALAPPDATA 'PrimeDictate\models\moonshine\sherpa-onnx-moonshine-base-en-int8'
+dotnet run -- --qnn-smoke $moonshineDir Cpu
+```
+
+If you want the JSON result persisted to a file instead of relying on stdout, add an optional trailing output path:
+
+```powershell
+$output = Join-Path $env:TEMP 'primedictate-qnn-smoke.json'
+dotnet run -- --qnn-smoke $moonshineDir Cpu $output
+```
+
+To run the strict Qualcomm QNN proof path with CPU fallback disabled:
+
+```powershell
+$moonshineDir = Join-Path $env:LOCALAPPDATA 'PrimeDictate\models\moonshine\sherpa-onnx-moonshine-base-en-int8'
+dotnet run -- --qnn-proof $moonshineDir true
+```
+
+PrimeDictate also includes a Whisper-specific Qualcomm QNN compatibility harness. This validates direct encoder/decoder session creation only; it does not yet run managed Whisper feature extraction or the autoregressive decoder loop:
+
+```powershell
+$whisperDir = Join-Path $env:LOCALAPPDATA 'PrimeDictate\models\whisper\sherpa-onnx-whisper-small.en'
+dotnet run -- --qnn-whisper-smoke $whisperDir Cpu
+dotnet run -- --qnn-whisper-proof $whisperDir true
+```
+
+Like the Moonshine commands, you can add an optional trailing output path to persist the JSON result to a file instead of relying on stdout.
+
+If strict validation passes, the result reports that QNN HTP session creation and inference succeeded with CPU fallback disabled. If it fails, PrimeDictate should not be treated as NPU-validated on that model/device combination.
 
 ### Why not clipboard + Ctrl+V?
 
@@ -271,7 +350,7 @@ An earlier design put the transcript on the clipboard, simulated **Paste**, then
 
 ## License
 
-This repository’s application code is provided as in-repo source; follow the licenses of the dependencies (Whisper.net, NAudio, SharpHook, and the GGML model terms from their respective publishers) when redistributing.
+This repository’s application code is provided as in-repo source; follow the licenses of the dependencies (sherpa-onnx, NAudio, SharpHook, and the ONNX model terms from their respective publishers) when redistributing.
 
 ## About FlowDevs & The Author
 

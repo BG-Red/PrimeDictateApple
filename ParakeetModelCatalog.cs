@@ -40,7 +40,7 @@ internal readonly record struct ParakeetModelDownloadProgress(string Stage, long
 internal static class ParakeetModelCatalog
 {
     private static readonly string ManagedModelsDirectory = Path.Combine(
-        ModelFileLocator.GetManagedModelsDirectory(),
+        ModelStorage.GetManagedModelsDirectory(),
         "parakeet");
 
     public static IReadOnlyList<ParakeetModelOption> Options { get; } =

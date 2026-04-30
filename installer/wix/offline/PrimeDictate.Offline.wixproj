@@ -6,7 +6,7 @@
     <Cultures>en-US</Cultures>
     <!-- Repo-root publish output (override from Build-Installers.ps1 if needed). -->
     <PublishDir Condition="'$(PublishDir)' == ''">$([MSBuild]::NormalizePath('$(MSBuildThisFileDirectory)', '..\..\..\artifacts\win-x64\publish'))</PublishDir>
-    <!-- Directory that contains ggml-large-v3-turbo.bin -->
+    <!-- Directory that contains whisper\sherpa-onnx-whisper-base.en\*.onnx and tokens. -->
     <ModelSourceDir Condition="'$(ModelSourceDir)' == ''">$([MSBuild]::NormalizePath('$(MSBuildThisFileDirectory)', '..\..\..\models'))</ModelSourceDir>
     <ProductVersion>$(Version).0</ProductVersion>
     <DefineConstants>ProductVersion=$(ProductVersion)</DefineConstants>

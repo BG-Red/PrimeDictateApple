@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Globalization;
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -20,20 +21,28 @@ internal partial class SettingsWindow : Window
     private sealed record AchievementDisplay(string Title, string Detail, string Status, MediaBrush Accent);
 
     private static readonly IReadOnlyList<HotkeyPrimaryOption> PrimaryKeyOptions = BuildPrimaryKeyOptions();
-    private static readonly IReadOnlyList<BackendChoice> BackendChoices =
+    private static readonly IReadOnlyList<BackendChoice> AllBackendChoices =
     [
         new(
             TranscriptionBackendKind.Whisper,
-            "Whisper",
-            "Best multilingual coverage and the most polished text quality. PrimeDictate supports the familiar GGML Whisper models you already have."),
+            "Whisper ONNX",
+            "Portable Whisper models through sherpa-onnx. Use the same ONNX model folder across supported CPU runtimes and future hardware providers."),
         new(
             TranscriptionBackendKind.Parakeet,
-            "Parakeet",
-            "A newer sherpa-onnx backend for fully local English transcription. Useful for testing non-Whisper accuracy and speed in the same workflow."),
+            "Parakeet ONNX",
+            "A newer ONNX backend for fully local English transcription. Useful for testing non-Whisper accuracy and speed in the same workflow."),
         new(
             TranscriptionBackendKind.Moonshine,
-            "Moonshine",
-            "A compact sherpa-onnx English backend that favors lightweight local transcription and fast turnaround on Windows.")
+            "Moonshine ONNX",
+            "A compact ONNX backend that favors lightweight local English transcription and fast turnaround."),
+        new(
+            TranscriptionBackendKind.WhisperNet,
+            "Whisper.net (GGML)",
+            "Native Whisper.net GGML models with NPU support (via OpenVINO) and access to larger V3 models."),
+        new(
+            TranscriptionBackendKind.QualcommQnn,
+            "Qualcomm QNN (Experimental)",
+            "Experimental Moonshine backend driven by ONNX Runtime QNN on native Windows ARM64. Uses strict QNN HTP validation when available and falls back to pure ONNX Runtime CPU only when strict validation is off.")
     ];
 
     private bool isCapturingHotkey;
@@ -43,6 +52,7 @@ internal partial class SettingsWindow : Window
     private HotkeyGesture currentHotkey;
     private readonly bool isFirstRun;
     private readonly bool isOverlaySticky;
+    private readonly IReadOnlyList<BackendChoice> availableBackendChoices;
     private CancellationTokenSource? modelDownloadCts;
     private TranscriptionBackendKind currentBackend;
     private readonly ObservableCollection<TranscriptReplacementRule> transcriptReplacementRules = new();
@@ -54,16 +64,17 @@ internal partial class SettingsWindow : Window
         this.isOverlaySticky = settings.IsOverlaySticky;
         this.currentHotkey = settings.DictationHotkey;
         this.currentBackend = settings.TranscriptionBackend;
+        this.availableBackendChoices = GetAvailableBackendChoices(settings.TranscriptionBackend);
 
         this.PrimaryKeyComboBox.ItemsSource = PrimaryKeyOptions;
         this.PrimaryKeyComboBox.DisplayMemberPath = nameof(HotkeyPrimaryOption.Label);
         this.InputDeviceComboBox.DisplayMemberPath = nameof(InputDeviceOption.Label);
-        this.ModelBackendComboBox.ItemsSource = BackendChoices;
+        this.ModelBackendComboBox.ItemsSource = this.availableBackendChoices;
         this.ModelBackendComboBox.DisplayMemberPath = nameof(BackendChoice.Label);
         this.ModelChoiceComboBox.DisplayMemberPath = nameof(WhisperModelOption.DisplayName);
+        this.SelectComputeInterface(settings.TranscriptionComputeInterface);
 
         this.ApplyHotkeyToBuilder(this.currentHotkey);
-        this.UseGpuForWhisperCheckBox.IsChecked = settings.UseGpuForWhisper;
         this.HotkeyValueText.Text = this.currentHotkey.ToString();
         this.TrayBehaviorComboBox.SelectedIndex = settings.TrayClickBehavior == TrayClickBehavior.SingleClickOpensSettings ? 0 : 1;
         this.ExclusiveMicAccessCheckBox.IsChecked = settings.ExclusiveMicAccessWhileDictating;
@@ -149,8 +160,8 @@ internal partial class SettingsWindow : Window
 
     private void InitializeModelSelection(AppSettings settings)
     {
-        var backendChoice = BackendChoices.FirstOrDefault(choice => choice.Kind == settings.TranscriptionBackend)
-            ?? BackendChoices.First(choice => choice.Kind == TranscriptionBackendKind.Whisper);
+        var backendChoice = this.availableBackendChoices.FirstOrDefault(choice => choice.Kind == settings.TranscriptionBackend)
+            ?? this.availableBackendChoices.First(choice => choice.Kind == TranscriptionBackendKind.Whisper);
 
         this.suppressBackendChoiceChanged = true;
         this.ModelBackendComboBox.SelectedItem = backendChoice;
@@ -172,6 +183,8 @@ internal partial class SettingsWindow : Window
         {
             TranscriptionBackendKind.Moonshine => SelectMoonshineModel(preferredModelId, configuredModelPath),
             TranscriptionBackendKind.Parakeet => SelectParakeetModel(preferredModelId, configuredModelPath),
+            TranscriptionBackendKind.QualcommQnn => SelectMoonshineModel(preferredModelId, configuredModelPath),
+            TranscriptionBackendKind.WhisperNet => SelectWhisperNetModel(preferredModelId, configuredModelPath),
             _ => SelectWhisperModel(preferredModelId, configuredModelPath)
         };
 
@@ -182,6 +195,8 @@ internal partial class SettingsWindow : Window
         {
             TranscriptionBackendKind.Moonshine => MoonshineModelCatalog.Options,
             TranscriptionBackendKind.Parakeet => ParakeetModelCatalog.Options,
+            TranscriptionBackendKind.QualcommQnn => MoonshineModelCatalog.Options,
+            TranscriptionBackendKind.WhisperNet => WhisperNetModelCatalog.Options,
             _ => WhisperModelCatalog.Options
         };
         this.ModelChoiceComboBox.SelectedItem = selectedOption;
@@ -191,6 +206,8 @@ internal partial class SettingsWindow : Window
         {
             TranscriptionBackendKind.Moonshine => ResolveInitialMoonshinePath(selectedOption as MoonshineModelOption, configuredModelPath),
             TranscriptionBackendKind.Parakeet => ResolveInitialParakeetPath(selectedOption as ParakeetModelOption, configuredModelPath),
+            TranscriptionBackendKind.QualcommQnn => ResolveInitialMoonshinePath(selectedOption as MoonshineModelOption, configuredModelPath),
+            TranscriptionBackendKind.WhisperNet => ResolveInitialWhisperNetPath(selectedOption as WhisperNetModelOption, configuredModelPath),
             _ => ResolveInitialWhisperPath(selectedOption as WhisperModelOption, configuredModelPath)
         };
 
@@ -244,9 +261,24 @@ internal partial class SettingsWindow : Window
             ?? MoonshineModelCatalog.Options.First();
     }
 
+    private static WhisperNetModelOption SelectWhisperNetModel(string? preferredModelId, string? configuredModelPath)
+    {
+        var optionFromPath = WhisperNetModelCatalog.TryGetByPath(configuredModelPath);
+        if (WhisperNetModelCatalog.TryGetById(preferredModelId, out var preferredOption))
+        {
+            return preferredOption;
+        }
+
+        return optionFromPath
+            ?? WhisperNetModelCatalog.Options.FirstOrDefault(option => option.Recommended && WhisperNetModelCatalog.TryResolveInstalledPath(option, out _))
+            ?? WhisperNetModelCatalog.Options.FirstOrDefault(option => WhisperNetModelCatalog.TryResolveInstalledPath(option, out _))
+            ?? WhisperNetModelCatalog.Options.FirstOrDefault(option => option.Recommended)
+            ?? WhisperNetModelCatalog.Options.First();
+    }
+
     private static string ResolveInitialWhisperPath(WhisperModelOption? option, string? configuredModelPath)
     {
-        if (ModelFileLocator.TryResolveExactPath(configuredModelPath, out var resolvedConfiguredPath))
+        if (WhisperModelCatalog.TryResolveDirectory(configuredModelPath, out var resolvedConfiguredPath))
         {
             return resolvedConfiguredPath;
         }
@@ -282,6 +314,21 @@ internal partial class SettingsWindow : Window
         }
 
         if (option is not null && MoonshineModelCatalog.TryResolveInstalledPath(option, out var installedPath))
+        {
+            return installedPath;
+        }
+
+        return string.Empty;
+    }
+
+    private static string ResolveInitialWhisperNetPath(WhisperNetModelOption? option, string? configuredModelPath)
+    {
+        if (!string.IsNullOrWhiteSpace(configuredModelPath) && System.IO.File.Exists(configuredModelPath))
+        {
+            return configuredModelPath;
+        }
+
+        if (option is not null && WhisperNetModelCatalog.TryResolveInstalledPath(option, out var installedPath))
         {
             return installedPath;
         }
@@ -346,10 +393,14 @@ internal partial class SettingsWindow : Window
             switch (this.currentBackend)
             {
                 case TranscriptionBackendKind.Moonshine:
+                case TranscriptionBackendKind.QualcommQnn:
                     await this.DownloadSelectedMoonshineModelAsync(this.modelDownloadCts.Token).ConfigureAwait(true);
                     break;
                 case TranscriptionBackendKind.Parakeet:
                     await this.DownloadSelectedParakeetModelAsync(this.modelDownloadCts.Token).ConfigureAwait(true);
+                    break;
+                case TranscriptionBackendKind.WhisperNet:
+                    await this.DownloadSelectedWhisperNetModelAsync(this.modelDownloadCts.Token).ConfigureAwait(true);
                     break;
                 default:
                     await this.DownloadSelectedWhisperModelAsync(this.modelDownloadCts.Token).ConfigureAwait(true);
@@ -489,6 +540,48 @@ internal partial class SettingsWindow : Window
         this.ShowModelDownloadMessage($"Downloaded {option.DisplayName} to {downloadedPath}.");
     }
 
+    private async Task DownloadSelectedWhisperNetModelAsync(CancellationToken cancellationToken)
+    {
+        if (this.ModelChoiceComboBox.SelectedItem is not WhisperNetModelOption option)
+        {
+            return;
+        }
+
+        var canUseOpenVinoOnThisMachine = option.SupportsOpenVinoBundle && PlatformSupport.SupportsWhisperNetOpenVino;
+
+        if (WhisperNetModelCatalog.TryResolveInstalledArtifacts(option, out var installedArtifacts) &&
+            (installedArtifacts.Value.HasOpenVinoSidecars || !canUseOpenVinoOnThisMachine))
+        {
+            this.SetModelPathText(installedArtifacts.Value.ModelPath);
+            this.ShowModelDownloadMessage($"{option.DisplayName} is already installed and ready to use.");
+            return;
+        }
+
+        this.ShowModelDownloadMessage(
+            installedArtifacts is { } && canUseOpenVinoOnThisMachine
+                ? $"Repairing {option.DisplayName} OpenVINO files..."
+                : $"Downloading {option.DisplayName}...");
+        var progress = new Progress<WhisperNetModelDownloadProgress>(downloadProgress =>
+        {
+            if (downloadProgress.Percentage is double percentage)
+            {
+                this.ModelDownloadProgressBar.IsIndeterminate = false;
+                this.ModelDownloadProgressBar.Value = percentage;
+            }
+
+            this.ShowModelDownloadMessage($"{option.DisplayName} - {downloadProgress.ProgressLabel}");
+        });
+
+        var downloadedPath = await WhisperNetModelDownloader
+            .DownloadAsync(option, progress, cancellationToken)
+            .ConfigureAwait(true);
+
+        this.SetModelPathText(downloadedPath);
+        this.ModelDownloadProgressBar.IsIndeterminate = false;
+        this.ModelDownloadProgressBar.Value = 100;
+        this.ShowModelDownloadMessage($"Downloaded {option.DisplayName} to {downloadedPath}.");
+    }
+
     private void OnCancelModelDownloadClick(object sender, RoutedEventArgs e)
     {
         this.modelDownloadCts?.Cancel();
@@ -499,10 +592,14 @@ internal partial class SettingsWindow : Window
         switch (this.currentBackend)
         {
             case TranscriptionBackendKind.Moonshine:
+            case TranscriptionBackendKind.QualcommQnn:
                 this.BrowseMoonshineModelPath();
                 break;
             case TranscriptionBackendKind.Parakeet:
                 this.BrowseParakeetModelPath();
+                break;
+            case TranscriptionBackendKind.WhisperNet:
+                this.BrowseWhisperNetModelPath();
                 break;
             default:
                 this.BrowseWhisperModelPath();
@@ -512,29 +609,27 @@ internal partial class SettingsWindow : Window
 
     private void BrowseWhisperModelPath()
     {
-        var dialog = new Microsoft.Win32.OpenFileDialog
+        using var dialog = new System.Windows.Forms.FolderBrowserDialog
         {
-            Title = "Select Whisper model file",
-            Filter = "Whisper model (*.bin)|*.bin|All files (*.*)|*.*",
-            CheckFileExists = true,
-            Multiselect = false
+            Description = "Select Whisper ONNX model folder",
+            ShowNewFolderButton = false
         };
 
-        if (dialog.ShowDialog(this) != true)
+        if (dialog.ShowDialog() != System.Windows.Forms.DialogResult.OK)
         {
             return;
         }
 
-        this.SetModelPathText(dialog.FileName);
-        var matchingCatalogOption = WhisperModelCatalog.TryGetByPath(dialog.FileName);
-        if (matchingCatalogOption is not null)
+        this.SetModelPathText(dialog.SelectedPath);
+        var matchingCatalogOption = WhisperModelCatalog.TryGetByPath(dialog.SelectedPath);
+        if (matchingCatalogOption is not null && !ReferenceEquals(this.ModelChoiceComboBox.SelectedItem, matchingCatalogOption))
         {
             this.suppressModelChoiceChanged = true;
             this.ModelChoiceComboBox.SelectedItem = matchingCatalogOption;
             this.suppressModelChoiceChanged = false;
         }
 
-        this.ShowModelDownloadMessage($"Using model file: {dialog.FileName}");
+        this.ShowModelDownloadMessage($"Using model folder: {dialog.SelectedPath}");
         this.UpdateModelSelectionUi();
     }
 
@@ -590,6 +685,33 @@ internal partial class SettingsWindow : Window
         this.UpdateModelSelectionUi();
     }
 
+    private void BrowseWhisperNetModelPath()
+    {
+        using var dialog = new System.Windows.Forms.OpenFileDialog
+        {
+            Title = "Select Whisper GGML model (.bin)",
+            Filter = "GGML Model Files (*.bin)|*.bin|All Files (*.*)|*.*",
+            CheckFileExists = true
+        };
+
+        if (dialog.ShowDialog() != System.Windows.Forms.DialogResult.OK)
+        {
+            return;
+        }
+
+        this.SetModelPathText(dialog.FileName);
+        var matchingCatalogOption = WhisperNetModelCatalog.TryGetByPath(dialog.FileName);
+        if (matchingCatalogOption is not null && !ReferenceEquals(this.ModelChoiceComboBox.SelectedItem, matchingCatalogOption))
+        {
+            this.suppressModelChoiceChanged = true;
+            this.ModelChoiceComboBox.SelectedItem = matchingCatalogOption;
+            this.suppressModelChoiceChanged = false;
+        }
+
+        this.ShowModelDownloadMessage($"Using model file: {dialog.FileName}");
+        this.UpdateModelSelectionUi();
+    }
+
     private void OnModelChoiceChanged(object sender, SelectionChangedEventArgs e)
     {
         if (this.suppressModelChoiceChanged)
@@ -601,10 +723,14 @@ internal partial class SettingsWindow : Window
         switch (this.currentBackend)
         {
             case TranscriptionBackendKind.Moonshine:
+            case TranscriptionBackendKind.QualcommQnn:
                 this.OnMoonshineModelChoiceChanged();
                 break;
             case TranscriptionBackendKind.Parakeet:
                 this.OnParakeetModelChoiceChanged();
+                break;
+            case TranscriptionBackendKind.WhisperNet:
+                this.OnWhisperNetModelChoiceChanged();
                 break;
             default:
                 this.OnWhisperModelChoiceChanged();
@@ -681,6 +807,29 @@ internal partial class SettingsWindow : Window
         this.UpdateModelSelectionUi();
     }
 
+    private void OnWhisperNetModelChoiceChanged()
+    {
+        if (this.ModelChoiceComboBox.SelectedItem is not WhisperNetModelOption option)
+        {
+            this.UpdateModelSelectionUi();
+            return;
+        }
+
+        var currentPath = this.ModelPathTextBox.Text.Trim();
+        var currentPathMatchesCatalog = WhisperNetModelCatalog.TryGetByPath(currentPath) is not null;
+
+        if (WhisperNetModelCatalog.TryResolveInstalledPath(option, out var installedPath))
+        {
+            this.SetModelPathText(installedPath);
+        }
+        else if (string.IsNullOrWhiteSpace(currentPath) || currentPathMatchesCatalog)
+        {
+            this.SetModelPathText(string.Empty);
+        }
+
+        this.UpdateModelSelectionUi();
+    }
+
     private void OnModelPathTextChanged(object sender, TextChangedEventArgs e)
     {
         if (this.suppressModelPathTextChanged)
@@ -693,6 +842,8 @@ internal partial class SettingsWindow : Window
         {
             TranscriptionBackendKind.Moonshine => MoonshineModelCatalog.TryGetByPath(currentPath),
             TranscriptionBackendKind.Parakeet => ParakeetModelCatalog.TryGetByPath(currentPath),
+            TranscriptionBackendKind.QualcommQnn => MoonshineModelCatalog.TryGetByPath(currentPath),
+            TranscriptionBackendKind.WhisperNet => WhisperNetModelCatalog.TryGetByPath(currentPath),
             _ => WhisperModelCatalog.TryGetByPath(currentPath)
         };
 
@@ -793,6 +944,8 @@ internal partial class SettingsWindow : Window
         }
 
         this.ApplyBackendSelection(choice.Kind, preferredModelId: null, configuredModelPath: null);
+        this.SelectDefaultComputeInterfaceForBackend(choice.Kind);
+        this.UpdateBackendUi();
     }
 
     private void OnSetupTabSelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -850,21 +1003,29 @@ internal partial class SettingsWindow : Window
 
     private void UpdateBackendUi()
     {
-        var backendChoice = BackendChoices.FirstOrDefault(choice => choice.Kind == this.currentBackend);
-        this.ModelBackendDescriptionText.Text = backendChoice?.Description ?? string.Empty;
-        this.BrowseModelPathButton.Content = this.currentBackend is TranscriptionBackendKind.Parakeet or TranscriptionBackendKind.Moonshine
-            ? "Browse folder..."
-            : "Browse...";
-        this.ModelPathLabelText.Text = this.currentBackend is TranscriptionBackendKind.Parakeet or TranscriptionBackendKind.Moonshine
-            ? "Resolved model folder path"
-            : "Resolved model file path";
-        this.UseGpuForWhisperCheckBox.IsEnabled = this.currentBackend == TranscriptionBackendKind.Whisper;
+        var backendChoice = AllBackendChoices.FirstOrDefault(choice => choice.Kind == this.currentBackend);
+        this.ModelBackendDescriptionText.Text = this.currentBackend switch
+        {
+            TranscriptionBackendKind.WhisperNet => PlatformSupport.WhisperNetRuntimeSummary,
+            TranscriptionBackendKind.QualcommQnn => PlatformSupport.QualcommQnnRuntimeSummary,
+            _ => backendChoice?.Description ?? string.Empty
+        };
+        this.BrowseModelPathButton.Content = this.currentBackend == TranscriptionBackendKind.WhisperNet
+            ? "Browse file..."
+            : "Browse folder...";
+        this.ModelPathLabelText.Text = this.currentBackend == TranscriptionBackendKind.WhisperNet
+            ? "Resolved model file path"
+            : "Resolved model folder path";
         this.ModelStorageHintText.Text = this.currentBackend switch
         {
             TranscriptionBackendKind.Parakeet => $"Downloaded Parakeet models are stored in {ParakeetModelCatalog.GetManagedModelsDirectory()}.",
             TranscriptionBackendKind.Moonshine => $"Downloaded Moonshine models are stored in {MoonshineModelCatalog.GetManagedModelsDirectory()}.",
-            _ => $"Downloaded Whisper models are stored in {ModelFileLocator.GetManagedModelsDirectory()}."
+            TranscriptionBackendKind.QualcommQnn => $"Qualcomm QNN uses the Moonshine model folder at {MoonshineModelCatalog.GetManagedModelsDirectory()}. Optional QNN-prepared artifacts may live in a qnn subfolder inside the selected Moonshine model directory.",
+            TranscriptionBackendKind.WhisperNet => $"Downloaded Whisper.net models are stored in {WhisperNetModelCatalog.GetManagedModelsDirectory()}.",
+            _ => $"Downloaded Whisper ONNX models are stored in {WhisperModelCatalog.GetManagedModelsDirectory()}."
         };
+
+        this.UpdateComputeInterfaceAvailability();
     }
 
     private void UpdateModelSelectionUi()
@@ -874,8 +1035,14 @@ internal partial class SettingsWindow : Window
             case TranscriptionBackendKind.Moonshine:
                 this.UpdateMoonshineModelSelectionUi();
                 return;
+            case TranscriptionBackendKind.QualcommQnn:
+                this.UpdateQualcommQnnModelSelectionUi();
+                return;
             case TranscriptionBackendKind.Parakeet:
                 this.UpdateParakeetModelSelectionUi();
+                return;
+            case TranscriptionBackendKind.WhisperNet:
+                this.UpdateWhisperNetModelSelectionUi();
                 return;
             default:
                 this.UpdateWhisperModelSelectionUi();
@@ -883,14 +1050,14 @@ internal partial class SettingsWindow : Window
         }
     }
 
-    private void UpdateWhisperModelSelectionUi()
+    private void UpdateWhisperNetModelSelectionUi()
     {
-        if (this.ModelChoiceComboBox.SelectedItem is not WhisperModelOption option)
+        if (this.ModelChoiceComboBox.SelectedItem is not WhisperNetModelOption option)
         {
-            this.ModelChoiceTitleText.Text = "Select a Whisper model";
+            this.ModelChoiceTitleText.Text = "Select a Whisper.net model";
             this.ModelChoiceMetaText.Text = string.Empty;
             this.ModelChoiceDescriptionText.Text = string.Empty;
-            this.ModelChoiceStatusText.Text = "Pick a Whisper model to download or browse to an existing .bin file.";
+            this.ModelChoiceStatusText.Text = "Pick a Whisper.net (GGML) model to download or browse to an existing model file.";
             this.RecommendedBadgeBorder.Visibility = Visibility.Collapsed;
             this.DownloadSelectedModelButton.IsEnabled = false;
             return;
@@ -902,7 +1069,105 @@ internal partial class SettingsWindow : Window
         this.RecommendedBadgeBorder.Visibility = option.Recommended ? Visibility.Visible : Visibility.Collapsed;
 
         var currentPath = this.ModelPathTextBox.Text.Trim();
-        var hasConfiguredPath = ModelFileLocator.TryResolveExactPath(currentPath, out var resolvedConfiguredPath);
+        var hasConfiguredPath = WhisperNetModelCatalog.TryGetByPath(currentPath) is not null;
+        var isInstalled = WhisperNetModelCatalog.TryResolveInstalledArtifacts(option, out var installedArtifacts);
+        var resolvedArtifacts = installedArtifacts.GetValueOrDefault();
+        var hasOpenVinoSidecars = isInstalled && resolvedArtifacts.HasOpenVinoSidecars;
+        var canUseOpenVinoOnThisMachine = option.SupportsOpenVinoBundle && PlatformSupport.SupportsWhisperNetOpenVino;
+        var installedPath = isInstalled ? resolvedArtifacts.ModelPath : string.Empty;
+        var configuredPathMatchesInstalled =
+            hasConfiguredPath &&
+            isInstalled &&
+            string.Equals(Path.GetFullPath(currentPath), installedPath, StringComparison.OrdinalIgnoreCase);
+
+        if (configuredPathMatchesInstalled && canUseOpenVinoOnThisMachine && !hasOpenVinoSidecars)
+        {
+            this.ModelChoiceStatusText.Text = $"GGML model found at {installedPath}, but the Intel OpenVINO sidecars are missing. Click Download model to install the NPU bundle.";
+        }
+        else if (hasConfiguredPath)
+        {
+            var configuredOption = WhisperNetModelCatalog.TryGetByPath(currentPath);
+            if (configuredOption is not null && configuredOption.Id == option.Id)
+            {
+                this.ModelChoiceStatusText.Text = $"Selected model ready: {currentPath}";
+            }
+            else
+            {
+                this.ModelChoiceStatusText.Text = $"Using a custom Whisper.net model file: {currentPath}";
+            }
+        }
+        else if (!string.IsNullOrWhiteSpace(currentPath) && System.IO.File.Exists(currentPath))
+        {
+            this.ModelChoiceStatusText.Text = PlatformSupport.SupportsWhisperNetOpenVino
+                ? $"Using a custom Whisper.net model file: {currentPath}"
+                : $"Using a custom Whisper.net model file: {currentPath}. Native ARM64 will run it on CPU.";
+        }
+        else if (!string.IsNullOrWhiteSpace(currentPath))
+        {
+            this.ModelChoiceStatusText.Text = "The file in the textbox is missing or invalid.";
+        }
+        else if (!PlatformSupport.SupportsWhisperNetOpenVino && hasOpenVinoSidecars)
+        {
+            this.ModelChoiceStatusText.Text = $"Installed on this PC: {installedPath}. This native ARM64 build will still use CPU; the OpenVINO sidecars are only usable from an x64 build.";
+        }
+        else if (hasOpenVinoSidecars)
+        {
+            this.ModelChoiceStatusText.Text = $"Installed on this PC: {installedPath}";
+        }
+        else if (isInstalled && canUseOpenVinoOnThisMachine)
+        {
+            this.ModelChoiceStatusText.Text = $"GGML model found at {installedPath}, but the Intel OpenVINO sidecars are missing. Click Download model to install the NPU bundle.";
+        }
+        else if (isInstalled)
+        {
+            this.ModelChoiceStatusText.Text = PlatformSupport.SupportsWhisperNetOpenVino
+                ? $"Installed on this PC: {installedPath}. Intel does not publish an OpenVINO bundle for this model, so NPU sidecars are unavailable."
+                : $"Installed on this PC: {installedPath}. Native ARM64 uses CPU for Whisper.net; OpenVINO/NPU requires an x64 build.";
+        }
+        else if (!PlatformSupport.SupportsWhisperNetOpenVino)
+        {
+            this.ModelChoiceStatusText.Text = $"Not downloaded yet. Download {option.DisplayName} for native ARM64 CPU use. Whisper.net OpenVINO/NPU requires an x64 build today.";
+        }
+        else if (!option.SupportsOpenVinoBundle)
+        {
+            this.ModelChoiceStatusText.Text = $"Not downloaded yet. Download {option.DisplayName} for GGML use, but note that Intel does not publish an OpenVINO bundle for this model.";
+        }
+        else
+        {
+            this.ModelChoiceStatusText.Text = $"Not downloaded yet. Download {option.DisplayName} or browse to a GGML .bin file.";
+        }
+
+        this.DownloadSelectedModelButton.Content = (hasOpenVinoSidecars && canUseOpenVinoOnThisMachine) || (isInstalled && !canUseOpenVinoOnThisMachine)
+            ? "Already installed"
+            : isInstalled && canUseOpenVinoOnThisMachine
+                ? "Repair download"
+                : "Download model";
+        this.DownloadSelectedModelButton.IsEnabled =
+            ((!isInstalled) || (canUseOpenVinoOnThisMachine && !hasOpenVinoSidecars)) &&
+            this.modelDownloadCts is null;
+        this.BrowseModelPathButton.IsEnabled = this.modelDownloadCts is null;
+    }
+
+    private void UpdateWhisperModelSelectionUi()
+    {
+        if (this.ModelChoiceComboBox.SelectedItem is not WhisperModelOption option)
+        {
+            this.ModelChoiceTitleText.Text = "Select a Whisper model";
+            this.ModelChoiceMetaText.Text = string.Empty;
+            this.ModelChoiceDescriptionText.Text = string.Empty;
+            this.ModelChoiceStatusText.Text = "Pick a Whisper ONNX model to download or browse to an existing model folder.";
+            this.RecommendedBadgeBorder.Visibility = Visibility.Collapsed;
+            this.DownloadSelectedModelButton.IsEnabled = false;
+            return;
+        }
+
+        this.ModelChoiceTitleText.Text = option.DisplayName;
+        this.ModelChoiceMetaText.Text = $"Approx. {option.ApproximateSizeLabel} download";
+        this.ModelChoiceDescriptionText.Text = option.Description;
+        this.RecommendedBadgeBorder.Visibility = option.Recommended ? Visibility.Visible : Visibility.Collapsed;
+
+        var currentPath = this.ModelPathTextBox.Text.Trim();
+        var hasConfiguredPath = WhisperModelCatalog.TryResolveDirectory(currentPath, out var resolvedConfiguredPath);
         var isInstalled = WhisperModelCatalog.TryResolveInstalledPath(option, out var installedPath);
 
         if (hasConfiguredPath)
@@ -914,12 +1179,12 @@ internal partial class SettingsWindow : Window
             }
             else
             {
-                this.ModelChoiceStatusText.Text = $"Using a custom model file: {resolvedConfiguredPath}";
+                this.ModelChoiceStatusText.Text = $"Using a custom Whisper ONNX model folder: {resolvedConfiguredPath}";
             }
         }
         else if (!string.IsNullOrWhiteSpace(currentPath))
         {
-            this.ModelChoiceStatusText.Text = "The model path in the textbox does not exist yet.";
+            this.ModelChoiceStatusText.Text = "The model folder in the textbox is missing required Whisper ONNX files.";
         }
         else if (isInstalled)
         {
@@ -927,7 +1192,7 @@ internal partial class SettingsWindow : Window
         }
         else
         {
-            this.ModelChoiceStatusText.Text = $"Not downloaded yet. Download {option.DisplayName} or browse to an existing .bin file.";
+            this.ModelChoiceStatusText.Text = $"Not downloaded yet. Download {option.DisplayName} or browse to a folder containing a Whisper ONNX encoder, decoder, and tokens file.";
         }
 
         this.DownloadSelectedModelButton.Content = isInstalled ? "Already installed" : "Download model";
@@ -1039,6 +1304,56 @@ internal partial class SettingsWindow : Window
         this.BrowseModelPathButton.IsEnabled = this.modelDownloadCts is null;
     }
 
+    private void UpdateQualcommQnnModelSelectionUi()
+    {
+        if (this.ModelChoiceComboBox.SelectedItem is not MoonshineModelOption option)
+        {
+            this.ModelChoiceTitleText.Text = "Select a Qualcomm QNN model";
+            this.ModelChoiceMetaText.Text = string.Empty;
+            this.ModelChoiceDescriptionText.Text = string.Empty;
+            this.ModelChoiceStatusText.Text = "Pick a Moonshine model folder for the experimental Qualcomm QNN backend.";
+            this.RecommendedBadgeBorder.Visibility = Visibility.Collapsed;
+            this.DownloadSelectedModelButton.IsEnabled = false;
+            return;
+        }
+
+        this.ModelChoiceTitleText.Text = option.DisplayName;
+        this.ModelChoiceMetaText.Text = $"Approx. {option.ApproximateSizeLabel} download";
+        this.ModelChoiceDescriptionText.Text = option.Description;
+        this.RecommendedBadgeBorder.Visibility = option.Recommended ? Visibility.Visible : Visibility.Collapsed;
+
+        var currentPath = this.ModelPathTextBox.Text.Trim();
+        var hasConfiguredPath = MoonshineModelCatalog.TryResolveDirectory(currentPath, out var resolvedConfiguredPath);
+        var isInstalled = MoonshineModelCatalog.TryResolveInstalledPath(option, out var installedPath);
+
+        if (hasConfiguredPath)
+        {
+            this.ModelChoiceStatusText.Text = PlatformSupport.SupportsQualcommQnnHtp
+                ? $"Selected Moonshine model ready for Qualcomm QNN experiments: {resolvedConfiguredPath}"
+                : $"Selected Moonshine model ready, but QNN HTP is unavailable on this machine. PrimeDictate will use CPU ORT if you keep this backend selected.";
+        }
+        else if (!string.IsNullOrWhiteSpace(currentPath))
+        {
+            this.ModelChoiceStatusText.Text = "The model folder in the textbox is missing required Moonshine files.";
+        }
+        else if (isInstalled)
+        {
+            this.ModelChoiceStatusText.Text = PlatformSupport.SupportsQualcommQnnHtp
+                ? $"Installed on this PC: {installedPath}. Strict validation will require all Moonshine sessions to load on QNN HTP with CPU fallback disabled."
+                : $"Installed on this PC: {installedPath}. QNN HTP is unavailable on this machine, so this backend will only use CPU ORT here.";
+        }
+        else
+        {
+            this.ModelChoiceStatusText.Text = PlatformSupport.SupportsQualcommQnnHtp
+                ? $"Not downloaded yet. Download {option.DisplayName} or browse to an extracted Moonshine folder. Optional QNN-prepared artifacts can be placed in a qnn subfolder later."
+                : $"Not downloaded yet. Download {option.DisplayName} for CPU ORT testing, but note that Qualcomm QNN HTP requires a native Windows ARM64 build with QNN runtime assets present.";
+        }
+
+        this.DownloadSelectedModelButton.Content = isInstalled ? "Already installed" : "Download model";
+        this.DownloadSelectedModelButton.IsEnabled = !isInstalled && this.modelDownloadCts is null;
+        this.BrowseModelPathButton.IsEnabled = this.modelDownloadCts is null;
+    }
+
     private bool TryBuildSettings(out AppSettings settings)
     {
         settings = null!;
@@ -1122,9 +1437,9 @@ internal partial class SettingsWindow : Window
                 ? TrayClickBehavior.SingleClickOpensSettings
                 : TrayClickBehavior.DoubleClickOpensSettings,
             TranscriptionBackend = this.currentBackend,
+            TranscriptionComputeInterface = this.GetSelectedComputeInterface(),
             SelectedModelId = selectedModelId,
             ModelPath = resolvedModelPath,
-            UseGpuForWhisper = this.UseGpuForWhisperCheckBox.IsChecked != false,
             ExclusiveMicAccessWhileDictating = this.ExclusiveMicAccessCheckBox.IsChecked == true,
             SelectedInputDeviceId = (this.InputDeviceComboBox.SelectedItem as InputDeviceOption)?.DeviceId,
             InputGainMultiplier = inputGainMultiplier,
@@ -1148,6 +1463,88 @@ internal partial class SettingsWindow : Window
         };
 
         return true;
+    }
+
+    private TranscriptionComputeInterface GetSelectedComputeInterface()
+    {
+        if (this.currentBackend == TranscriptionBackendKind.WhisperNet &&
+            !PlatformSupport.SupportsWhisperNetOpenVino)
+        {
+            return TranscriptionComputeInterface.Cpu;
+        }
+
+        if (this.ComputeInterfaceComboBox.SelectedItem is ComboBoxItem { Tag: string tag } &&
+            Enum.TryParse<TranscriptionComputeInterface>(tag, ignoreCase: true, out var parsed))
+        {
+            return parsed;
+        }
+
+        return TranscriptionComputeInterface.Cpu;
+    }
+
+    private void SelectComputeInterface(TranscriptionComputeInterface computeInterface)
+    {
+        foreach (var item in this.ComputeInterfaceComboBox.Items)
+        {
+            if (item is ComboBoxItem comboItem &&
+                string.Equals(comboItem.Tag?.ToString(), computeInterface.ToString(), StringComparison.OrdinalIgnoreCase))
+            {
+                this.ComputeInterfaceComboBox.SelectedItem = comboItem;
+                return;
+            }
+        }
+
+        this.ComputeInterfaceComboBox.SelectedIndex = 0;
+    }
+
+    private void UpdateComputeInterfaceAvailability()
+    {
+        foreach (var item in this.ComputeInterfaceComboBox.Items)
+        {
+            if (item is ComboBoxItem comboItem)
+            {
+                comboItem.IsEnabled = true;
+            }
+        }
+
+        if (this.currentBackend == TranscriptionBackendKind.WhisperNet &&
+            !PlatformSupport.SupportsWhisperNetOpenVino)
+        {
+            this.SetComputeInterfaceEnabled("Gpu", false);
+            this.SetComputeInterfaceEnabled("Npu", false);
+            this.SelectComputeInterface(TranscriptionComputeInterface.Cpu);
+            return;
+        }
+
+        if (this.currentBackend == TranscriptionBackendKind.QualcommQnn)
+        {
+            this.SetComputeInterfaceEnabled("Gpu", false);
+            if (this.ComputeInterfaceComboBox.SelectedItem is ComboBoxItem { Tag: string selectedTag } &&
+                string.Equals(selectedTag, TranscriptionComputeInterface.Gpu.ToString(), StringComparison.OrdinalIgnoreCase))
+            {
+                this.SelectComputeInterface(TranscriptionComputeInterface.Npu);
+            }
+        }
+    }
+
+    private void SelectDefaultComputeInterfaceForBackend(TranscriptionBackendKind backend)
+    {
+        if (backend == TranscriptionBackendKind.QualcommQnn)
+        {
+            this.SelectComputeInterface(TranscriptionComputeInterface.Npu);
+        }
+    }
+
+    private void SetComputeInterfaceEnabled(string tag, bool isEnabled)
+    {
+        foreach (var item in this.ComputeInterfaceComboBox.Items)
+        {
+            if (item is ComboBoxItem comboItem &&
+                string.Equals(comboItem.Tag?.ToString(), tag, StringComparison.OrdinalIgnoreCase))
+            {
+                comboItem.IsEnabled = isEnabled;
+            }
+        }
     }
 
     private void InitializeStatsTab(AppSettings settings, DictationStatsState? statsState)
@@ -1331,8 +1728,18 @@ internal partial class SettingsWindow : Window
         {
             TranscriptionBackendKind.Moonshine => this.TryResolveMoonshineSelectionForSave(configuredPath, out resolvedModelPath, out selectedModelId),
             TranscriptionBackendKind.Parakeet => this.TryResolveParakeetSelectionForSave(configuredPath, out resolvedModelPath, out selectedModelId),
+            TranscriptionBackendKind.QualcommQnn => this.TryResolveMoonshineSelectionForSave(configuredPath, out resolvedModelPath, out selectedModelId),
+            TranscriptionBackendKind.WhisperNet => this.TryResolveWhisperNetSelectionForSave(configuredPath, out resolvedModelPath, out selectedModelId),
             _ => this.TryResolveWhisperSelectionForSave(configuredPath, out resolvedModelPath, out selectedModelId)
         };
+    }
+
+    private static IReadOnlyList<BackendChoice> GetAvailableBackendChoices(TranscriptionBackendKind selectedBackend)
+    {
+        var shouldIncludeQualcommQnn = PlatformSupport.ShouldOfferQualcommQnnBackend || selectedBackend == TranscriptionBackendKind.QualcommQnn;
+        return AllBackendChoices
+            .Where(choice => shouldIncludeQualcommQnn || choice.Kind != TranscriptionBackendKind.QualcommQnn)
+            .ToArray();
     }
 
     private bool TryResolveWhisperSelectionForSave(
@@ -1343,7 +1750,7 @@ internal partial class SettingsWindow : Window
         resolvedModelPath = string.Empty;
         selectedModelId = (this.ModelChoiceComboBox.SelectedItem as WhisperModelOption)?.Id;
 
-        if (ModelFileLocator.TryResolveExactPath(configuredPath, out var explicitPath))
+        if (WhisperModelCatalog.TryResolveDirectory(configuredPath, out var explicitPath))
         {
             resolvedModelPath = explicitPath;
             selectedModelId = WhisperModelCatalog.TryGetByPath(explicitPath)?.Id ?? selectedModelId;
@@ -1354,8 +1761,8 @@ internal partial class SettingsWindow : Window
         {
             System.Windows.MessageBox.Show(
                 this,
-                "The selected model path does not exist. Download the model first or browse to an existing Whisper .bin file.",
-                "Model file not found",
+                "The selected model folder is incomplete. PrimeDictate needs a Whisper ONNX encoder, decoder, and tokens file.",
+                "Model folder not found",
                 MessageBoxButton.OK,
                 MessageBoxImage.Warning);
             return false;
@@ -1372,7 +1779,7 @@ internal partial class SettingsWindow : Window
 
         System.Windows.MessageBox.Show(
             this,
-            "Choose a Whisper model to download or browse to an existing Whisper .bin file before saving.",
+            "Choose a Whisper ONNX model to download or browse to an existing model folder before saving.",
             "Model required",
             MessageBoxButton.OK,
             MessageBoxImage.Warning);
@@ -1461,6 +1868,50 @@ internal partial class SettingsWindow : Window
         System.Windows.MessageBox.Show(
             this,
             "Choose a Moonshine model to download or browse to an existing model folder before saving.",
+            "Model required",
+            MessageBoxButton.OK,
+            MessageBoxImage.Warning);
+        return false;
+    }
+
+    private bool TryResolveWhisperNetSelectionForSave(
+        string configuredPath,
+        out string resolvedModelPath,
+        out string? selectedModelId)
+    {
+        resolvedModelPath = string.Empty;
+        selectedModelId = (this.ModelChoiceComboBox.SelectedItem as WhisperNetModelOption)?.Id;
+
+        if (!string.IsNullOrWhiteSpace(configuredPath) && System.IO.File.Exists(configuredPath))
+        {
+            resolvedModelPath = configuredPath;
+            selectedModelId = WhisperNetModelCatalog.TryGetByPath(configuredPath)?.Id ?? selectedModelId;
+            return true;
+        }
+
+        if (!string.IsNullOrWhiteSpace(configuredPath))
+        {
+            System.Windows.MessageBox.Show(
+                this,
+                "The selected model file was not found. PrimeDictate needs a Whisper GGML .bin file.",
+                "Model file not found",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+            return false;
+        }
+
+        if (this.ModelChoiceComboBox.SelectedItem is WhisperNetModelOption option &&
+            WhisperNetModelCatalog.TryResolveInstalledPath(option, out var installedPath))
+        {
+            resolvedModelPath = installedPath;
+            selectedModelId = option.Id;
+            this.SetModelPathText(installedPath);
+            return true;
+        }
+
+        System.Windows.MessageBox.Show(
+            this,
+            "Choose a Whisper.net model to download or browse to an existing model file before saving.",
             "Model required",
             MessageBoxButton.OK,
             MessageBoxImage.Warning);

@@ -8,7 +8,7 @@ installer/wix/**/obj/
 installer/trywix/
 
 # Local model artifacts (kept out of public repo)
-models/*.bin
+models/**
 
 # IDE/editor local state
 .vs/

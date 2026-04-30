@@ -8,7 +8,7 @@ Use this skill whenever you change WiX/MSI setup in `installer/wix`.
 
 The only intentional product difference is model delivery:
 
-- **Offline** embeds `ggml-large-v3-turbo.bin` in the MSI payload.
+- **Offline** embeds the default Whisper ONNX model folder in the MSI payload.
 - **Online** downloads the model after file install (`DownloadModel.cmd` / `WixQuietExec`).
 
 Both installers must also share a single MSI product identity for upgrade compatibility:

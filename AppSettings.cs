@@ -18,11 +18,12 @@ internal sealed class AppSettings
     [JsonConverter(typeof(JsonStringEnumConverter))]
     public TranscriptionBackendKind TranscriptionBackend { get; set; } = TranscriptionBackendKind.Whisper;
 
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public TranscriptionComputeInterface TranscriptionComputeInterface { get; set; } = TranscriptionComputeInterface.Cpu;
+
     public string? SelectedModelId { get; set; }
 
     public string? ModelPath { get; set; }
-
-    public bool UseGpuForWhisper { get; set; } = true;
 
     public bool ExclusiveMicAccessWhileDictating { get; set; }
 
@@ -65,9 +66,9 @@ internal sealed class AppSettings
         DictationHotkey = HotkeyGesture.Default,
         TrayClickBehavior = TrayClickBehavior.DoubleClickOpensSettings,
         TranscriptionBackend = TranscriptionBackendKind.Whisper,
+        TranscriptionComputeInterface = TranscriptionComputeInterface.Cpu,
         SelectedModelId = null,
         ModelPath = null,
-        UseGpuForWhisper = true,
         ExclusiveMicAccessWhileDictating = false,
         SelectedInputDeviceId = null,
         InputGainMultiplier = 1.0,
@@ -103,7 +104,16 @@ internal enum TranscriptionBackendKind
 {
     Whisper = 0,
     Parakeet = 1,
-    Moonshine = 2
+    Moonshine = 2,
+    WhisperNet = 3,
+    QualcommQnn = 4
+}
+
+internal enum TranscriptionComputeInterface
+{
+    Cpu = 0,
+    Gpu = 1,
+    Npu = 2
 }
 
 internal enum OverlayMode

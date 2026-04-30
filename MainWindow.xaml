@@ -159,7 +159,21 @@
                            FontWeight="SemiBold"
                            Text="Global Activity" />
 
-                <ListView Grid.Row="4"
+                <StackPanel Grid.Row="3"
+                        Margin="0,2,0,0"
+                        Orientation="Horizontal"
+                        HorizontalAlignment="Right">
+                    <Button Width="126"
+                        Margin="0,0,8,0"
+                        Content="Copy errors"
+                        Click="OnCopyErrorsClick" />
+                    <Button Width="142"
+                        Content="Copy all activity"
+                        Click="OnCopyAllActivityClick" />
+                </StackPanel>
+
+                <ListView x:Name="GlobalActivityListView"
+                      Grid.Row="4"
                           Margin="0,8,0,0"
                           ItemsSource="{Binding GlobalEntries}"
                           ScrollViewer.HorizontalScrollBarVisibility="Disabled"

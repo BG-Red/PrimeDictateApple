@@ -1,10 +1,12 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-  Publishes a self-contained win-x64 build to artifacts\win-x64\publish.
+    Publishes a self-contained Windows build to artifacts\<rid>\publish.
 #>
 param(
     [string] $Configuration = "Release",
+        [ValidateSet("win-x64", "win-arm64")]
+        [string] $RuntimeIdentifier = "win-x64",
     [string] $PackageVersion,
     [string] $AssemblyVersion,
     [string] $FileVersion,
@@ -15,7 +17,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
-$publishDir = Join-Path $repoRoot "artifacts\win-x64\publish"
+$publishDir = Join-Path $repoRoot (Join-Path "artifacts" (Join-Path $RuntimeIdentifier "publish"))
 
 Push-Location $repoRoot
 try {
@@ -39,7 +41,7 @@ try {
 
     dotnet publish .\PrimeDictate.csproj `
         -c $Configuration `
-        -r win-x64 `
+        -r $RuntimeIdentifier `
         --self-contained true `
         -p:PublishSingleFile=false `
         -p:IncludeNativeLibrariesForSelfExtract=true `

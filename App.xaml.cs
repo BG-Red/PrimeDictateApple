@@ -48,9 +48,15 @@ public partial class App : System.Windows.Application
         this.errorStateTimer.Tick += this.OnErrorStateTimerTick;
     }
 
-    protected override async void OnStartup(StartupEventArgs e)
+    protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+
+        if (TryHandleValidationCommandLine(e.Args, out var validationExitCode))
+        {
+            this.Shutdown(validationExitCode);
+            return;
+        }
 
         if (LaunchAtLoginManager.TryHandleCommandLine(e.Args, out var exitCode))
         {
@@ -66,7 +72,6 @@ public partial class App : System.Windows.Application
         var historyEntries = this.historyStore.Load();
         this.historyViewModel.Load(historyEntries);
         this.stats = this.statsStore.LoadOrCreate(historyEntries);
-        this.ApplyModelPathOverride(this.settings);
         this.UpdateRuntimeStatusUi();
 
         var configured = this.settings.DictationHotkey.IsValid(out _)
@@ -82,9 +87,9 @@ public partial class App : System.Windows.Application
             this.settings.SendEnterAfterCommit,
             this.settings.ReturnToStartTargetOnCommit,
             this.settings.TranscriptionBackend,
+            this.settings.TranscriptionComputeInterface,
             this.settings.SelectedModelId,
             this.settings.ModelPath,
-            this.settings.UseGpuForWhisper,
             this.settings.EnableOllamaPostProcessing,
             this.settings.OllamaEndpoint,
             this.settings.OllamaModel,
@@ -108,6 +113,101 @@ public partial class App : System.Windows.Application
         {
             this.ShowSettingsWindow(isFirstRun: true);
         }
+    }
+
+    private static bool TryHandleValidationCommandLine(string[] args, out int exitCode)
+    {
+        exitCode = 0;
+        if (args.Length == 0)
+        {
+            return false;
+        }
+
+        try
+        {
+            if (string.Equals(args[0], "--qnn-whisper-smoke", StringComparison.OrdinalIgnoreCase))
+            {
+                if (args.Length < 3)
+                {
+                    throw new ArgumentException("Usage: --qnn-whisper-smoke <model-directory> <Cpu|Npu> [output-file]");
+                }
+
+                WriteValidationResult(
+                    QualcommQnnWhisperValidationHarness.RunBackendSmokeValidation(args[1], args[2]),
+                    args.Length >= 4 ? args[3] : null);
+                return true;
+            }
+
+            if (string.Equals(args[0], "--qnn-whisper-proof", StringComparison.OrdinalIgnoreCase))
+            {
+                if (args.Length < 2)
+                {
+                    throw new ArgumentException("Usage: --qnn-whisper-proof <model-directory> [true|false] [output-file]");
+                }
+
+                var strictValidation = args.Length < 3 || bool.Parse(args[2]);
+                var outputFile = args.Length >= 4 ? args[3] : null;
+                WriteValidationResult(
+                    QualcommQnnWhisperValidationHarness.RunSmokeValidation(args[1], strictValidation),
+                    outputFile);
+                return true;
+            }
+
+            if (string.Equals(args[0], "--qnn-smoke", StringComparison.OrdinalIgnoreCase))
+            {
+                if (args.Length < 3)
+                {
+                    throw new ArgumentException("Usage: --qnn-smoke <model-directory> <Cpu|Npu> [output-file]");
+                }
+
+                WriteValidationResult(
+                    QualcommQnnValidationHarness.RunBackendSmokeValidation(args[1], args[2]),
+                    args.Length >= 4 ? args[3] : null);
+                return true;
+            }
+
+            if (string.Equals(args[0], "--qnn-proof", StringComparison.OrdinalIgnoreCase))
+            {
+                if (args.Length < 2)
+                {
+                    throw new ArgumentException("Usage: --qnn-proof <model-directory> [true|false] [output-file]");
+                }
+
+                var strictValidation = args.Length < 3 || bool.Parse(args[2]);
+                var outputFile = args.Length >= 4 ? args[3] : null;
+                WriteValidationResult(
+                    QualcommQnnValidationHarness.RunSmokeValidation(args[1], strictValidation),
+                    outputFile);
+                return true;
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine(ex.Message);
+            exitCode = 1;
+            return true;
+        }
+
+        return false;
+    }
+
+    private static void WriteValidationResult(string result, string? outputFile)
+    {
+        Console.WriteLine(result);
+
+        if (string.IsNullOrWhiteSpace(outputFile))
+        {
+            return;
+        }
+
+        var fullOutputPath = Path.GetFullPath(outputFile);
+        var directory = Path.GetDirectoryName(fullOutputPath);
+        if (!string.IsNullOrEmpty(directory))
+        {
+            Directory.CreateDirectory(directory);
+        }
+
+        File.WriteAllText(fullOutputPath, result);
     }
 
     protected override async void OnExit(ExitEventArgs e)
@@ -248,7 +348,6 @@ public partial class App : System.Windows.Application
         this.overlayExpandedFromCompact = false;
         this.settings = newSettings;
         this.settingsStore.Save(newSettings);
-        this.ApplyModelPathOverride(newSettings);
         this.UpdateRuntimeStatusUi();
         this.hotkeyListener.UpdateHotkey(newSettings.DictationHotkey);
         this.dictationController?.UpdateCaptureOptions(
@@ -259,9 +358,9 @@ public partial class App : System.Windows.Application
             newSettings.SendEnterAfterCommit,
             newSettings.ReturnToStartTargetOnCommit,
             newSettings.TranscriptionBackend,
+            newSettings.TranscriptionComputeInterface,
             newSettings.SelectedModelId,
             newSettings.ModelPath,
-            newSettings.UseGpuForWhisper,
             newSettings.EnableOllamaPostProcessing,
             newSettings.OllamaEndpoint,
             newSettings.OllamaModel,
@@ -590,18 +689,6 @@ public partial class App : System.Windows.Application
             Forms.ToolTipIcon.Info);
     }
 
-    private void ApplyModelPathOverride(AppSettings configuredSettings)
-    {
-        if (configuredSettings.TranscriptionBackend != TranscriptionBackendKind.Whisper ||
-            string.IsNullOrWhiteSpace(configuredSettings.ModelPath))
-        {
-            Environment.SetEnvironmentVariable("PRIME_DICTATE_MODEL", null);
-            return;
-        }
-
-        Environment.SetEnvironmentVariable("PRIME_DICTATE_MODEL", configuredSettings.ModelPath);
-    }
-
     private void UpdateRuntimeStatusUi()
     {
         if (this.settings is null)
@@ -630,9 +717,11 @@ public partial class App : System.Windows.Application
 
     private string GetActiveBackendLabel() => this.settings?.TranscriptionBackend switch
     {
-        TranscriptionBackendKind.Moonshine => "Moonshine",
-        TranscriptionBackendKind.Parakeet => "Parakeet",
-        _ => "Whisper"
+        TranscriptionBackendKind.QualcommQnn => "Qualcomm QNN (Experimental)",
+        TranscriptionBackendKind.Moonshine => "Moonshine ONNX",
+        TranscriptionBackendKind.Parakeet => "Parakeet ONNX",
+        TranscriptionBackendKind.WhisperNet => "Whisper.net (GGML)",
+        _ => "Whisper ONNX"
     };
 
     private string GetActiveModelLabel()
@@ -644,8 +733,10 @@ public partial class App : System.Windows.Application
 
         return this.settings.TranscriptionBackend switch
         {
+            TranscriptionBackendKind.QualcommQnn => GetMoonshineModelLabel(this.settings),
             TranscriptionBackendKind.Moonshine => GetMoonshineModelLabel(this.settings),
             TranscriptionBackendKind.Parakeet => GetParakeetModelLabel(this.settings),
+            TranscriptionBackendKind.WhisperNet => GetWhisperNetModelLabel(this.settings),
             _ => GetWhisperModelLabel(this.settings)
         };
     }
@@ -708,6 +799,24 @@ public partial class App : System.Windows.Application
         }
 
         return Path.GetFileName(settings.ModelPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+    }
+
+    private static string GetWhisperNetModelLabel(AppSettings settings)
+    {
+        if (WhisperNetModelCatalog.TryGetById(settings.SelectedModelId, out var option))
+        {
+            return option.DisplayName;
+        }
+
+        var optionFromPath = WhisperNetModelCatalog.TryGetByPath(settings.ModelPath);
+        if (optionFromPath is not null)
+        {
+            return optionFromPath.DisplayName;
+        }
+
+        return string.IsNullOrWhiteSpace(settings.ModelPath)
+            ? "Default"
+            : Path.GetFileName(settings.ModelPath);
     }
 
     private BitmapSource CreateWindowIcon() =>

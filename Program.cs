@@ -85,7 +85,9 @@ internal sealed class DictationController : IAsyncDisposable
     private static readonly TimeSpan LivePreviewMaxAudio = TimeSpan.FromSeconds(12);
     private static readonly TimeSpan SilenceProbeInterval = TimeSpan.FromMilliseconds(500);
     private static readonly TimeSpan RecentSpeechWindow = TimeSpan.FromMilliseconds(450);
-    private const double SpeechRmsThreshold = 0.0065;
+    private const double MinSpeechRmsThreshold = 0.0018;
+    private const double MaxSpeechRmsThreshold = 0.02;
+    private const double NoiseFloorSmoothing = 0.08;
 
     private readonly SemaphoreSlim toggleGate = new(initialCount: 1, maxCount: 1);
     private readonly DefaultMicrophoneRecorder recorder = new();
@@ -109,6 +111,8 @@ internal sealed class DictationController : IAsyncDisposable
     private OllamaMode ollamaMode = OllamaMode.Default;
     private List<TranscriptReplacementRule> transcriptReplacements = new();
     private long lastSpeechTicksUtc;
+    private double adaptiveNoiseFloorRms = MinSpeechRmsThreshold;
+    private double maxObservedRmsThisSession;
 
     public event Action<bool>? RecordingStateChanged;
     public event Action<bool>? ProcessingStateChanged;
@@ -126,9 +130,9 @@ internal sealed class DictationController : IAsyncDisposable
         bool sendEnterAfterCommit = false,
         bool returnToStartTargetOnCommit = false,
         TranscriptionBackendKind transcriptionBackend = TranscriptionBackendKind.Whisper,
+        TranscriptionComputeInterface transcriptionComputeInterface = TranscriptionComputeInterface.Cpu,
         string? selectedModelId = null,
         string? modelPath = null,
-        bool useGpuForWhisper = true,
         bool enableOllamaPostProcessing = false,
         string ollamaEndpoint = "http://localhost:11434",
         string ollamaModel = "gemma:2b",
@@ -146,7 +150,11 @@ internal sealed class DictationController : IAsyncDisposable
         this.ollamaModel = ollamaModel;
         this.ollamaMode = ollamaMode;
         this.ReplaceTranscriptReplacementRules(transcriptReplacements);
-        this.textInjectionPipeline.UpdateConfiguration(transcriptionBackend, selectedModelId, modelPath, useGpuForWhisper);
+        this.textInjectionPipeline.UpdateConfiguration(
+            transcriptionBackend,
+            transcriptionComputeInterface,
+            selectedModelId,
+            modelPath);
         this.recorder.UpdateInputDevice(this.selectedInputDeviceId);
         this.recorder.UpdateInputGain(this.inputGainMultiplier);
         this.recorder.AudioLevelUpdated += this.OnRecorderAudioLevelUpdated;
@@ -169,9 +177,9 @@ internal sealed class DictationController : IAsyncDisposable
         bool sendEnterAfterCommit,
         bool returnToStartTargetOnCommit,
         TranscriptionBackendKind transcriptionBackend,
+        TranscriptionComputeInterface transcriptionComputeInterface,
         string? selectedModelId,
         string? modelPath,
-        bool useGpuForWhisper,
         bool enableOllamaPostProcessing,
         string ollamaEndpoint,
         string ollamaModel,
@@ -193,7 +201,11 @@ internal sealed class DictationController : IAsyncDisposable
             this.ReplaceTranscriptReplacementRules(transcriptReplacements);
         }
 
-        this.textInjectionPipeline.UpdateConfiguration(transcriptionBackend, selectedModelId, modelPath, useGpuForWhisper);
+        this.textInjectionPipeline.UpdateConfiguration(
+            transcriptionBackend,
+            transcriptionComputeInterface,
+            selectedModelId,
+            modelPath);
         this.recorder.UpdateInputDevice(this.selectedInputDeviceId);
         this.recorder.UpdateInputGain(this.inputGainMultiplier);
     }
@@ -219,6 +231,8 @@ internal sealed class DictationController : IAsyncDisposable
                 this.activeInputTarget = ForegroundInputTarget.Capture();
                 Interlocked.Exchange(ref this.autoCommitRequested, 0);
                 Interlocked.Exchange(ref this.lastSpeechTicksUtc, 0);
+                this.adaptiveNoiseFloorRms = MinSpeechRmsThreshold;
+                this.maxObservedRmsThisSession = 0;
                 this.ThreadStarted?.Invoke(threadId);
                 this.recorder.Start(useExclusiveMicAccess);
                 this.livePreviewCts = new CancellationTokenSource();
@@ -367,6 +381,15 @@ internal sealed class DictationController : IAsyncDisposable
     private async Task StopAndCommitRecordingCoreAsync(string reason)
     {
         this.livePreviewCts?.Cancel();
+
+        // Stop recording and update UI immediately so it feels responsive even if the NPU is lagging
+        var audio = await this.recorder.StopAsync().ConfigureAwait(false);
+        AppLog.Info(
+            $"Recording stopped ({reason}): {audio.Duration.TotalSeconds:N2}s, {audio.Pcm16KhzMono.Length:N0} bytes PCM.",
+            this.activeThreadId);
+        this.RecordingStateChanged?.Invoke(false);
+        this.ProcessingStateChanged?.Invoke(true);
+
         if (this.livePreviewTask is { } liveTask)
         {
             try
@@ -382,13 +405,6 @@ internal sealed class DictationController : IAsyncDisposable
         this.livePreviewCts?.Dispose();
         this.livePreviewCts = null;
         this.livePreviewTask = null;
-
-        var audio = await this.recorder.StopAsync().ConfigureAwait(false);
-        AppLog.Info(
-            $"Recording stopped ({reason}): {audio.Duration.TotalSeconds:N2}s, {audio.Pcm16KhzMono.Length:N0} bytes PCM.",
-            this.activeThreadId);
-        this.RecordingStateChanged?.Invoke(false);
-        this.ProcessingStateChanged?.Invoke(true);
 
         try
         {
@@ -460,6 +476,16 @@ internal sealed class DictationController : IAsyncDisposable
         }
 
         var target = this.activeInputTarget;
+        if (target is null)
+        {
+            AppLog.Info("No foreground target snapshot captured at dictation start; text will go to current foreground app.", this.activeThreadId);
+        }
+        else
+        {
+            AppLog.Info($"Captured target: {target.DisplayName} (pid {target.ProcessId}).", this.activeThreadId);
+        }
+
+        AppLog.Info($"Runtime transcription config: {this.textInjectionPipeline.ConfigurationSummary}", this.activeThreadId);
         string? finalTranscript = null;
         string? originalTranscript = null;
         string? ollamaSystemPrompt = null;
@@ -485,6 +511,10 @@ internal sealed class DictationController : IAsyncDisposable
 
             if (string.IsNullOrWhiteSpace(finalTranscript))
             {
+                AppLog.Info(
+                    $"No transcript text produced. Peak mic RMS this session: {this.maxObservedRmsThisSession:0.0000}. " +
+                    "Try increasing Input Gain or selecting a different model/backend.",
+                    this.activeThreadId);
                 return;
             }
 
@@ -592,7 +622,7 @@ internal sealed class DictationController : IAsyncDisposable
             }
 
             this.textInjectionPipeline.InjectTextToTarget(finalTranscript);
-            AppLog.Info("Transcript typed into target.", this.activeThreadId);
+            AppLog.Info($"Transcript typed into target ({finalTranscript.Length:N0} chars).", this.activeThreadId);
 
             if (shouldSendEnter)
             {
@@ -612,7 +642,8 @@ internal sealed class DictationController : IAsyncDisposable
         }
         catch (Exception ex)
         {
-            AppLog.Error($"Transcription or text injection failed: {ex.Message}", this.activeThreadId);
+            AppLog.Error($"Transcription or text injection failed: {ex.GetType().Name}: {ex.Message}", this.activeThreadId);
+            AppLog.Error(ex.ToString(), this.activeThreadId);
             if (this.activeThreadId is Guid threadId && !string.IsNullOrWhiteSpace(finalTranscript))
             {
                 this.TranscriptCommitted?.Invoke(new TranscriptCommittedEvent(
@@ -673,7 +704,18 @@ internal sealed class DictationController : IAsyncDisposable
 
     private void OnRecorderAudioLevelUpdated(double rms)
     {
-        if (rms >= SpeechRmsThreshold)
+        if (rms > this.maxObservedRmsThisSession)
+        {
+            this.maxObservedRmsThisSession = rms;
+        }
+
+        // Track a soft ambient noise floor and derive a dynamic speech threshold.
+        this.adaptiveNoiseFloorRms =
+            (this.adaptiveNoiseFloorRms * (1 - NoiseFloorSmoothing)) +
+            (Math.Max(0, rms) * NoiseFloorSmoothing);
+        var dynamicThreshold = Math.Clamp(this.adaptiveNoiseFloorRms * 3.5, MinSpeechRmsThreshold, MaxSpeechRmsThreshold);
+
+        if (rms >= dynamicThreshold)
         {
             Interlocked.Exchange(ref this.lastSpeechTicksUtc, DateTime.UtcNow.Ticks);
         }

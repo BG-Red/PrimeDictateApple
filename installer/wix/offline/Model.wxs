@@ -1,8 +1,18 @@
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
   <Fragment>
-    <ComponentGroup Id="ModelComponents" Directory="ModelsDir">
-      <Component Id="WhisperModelComponent" Guid="B7E8F9A1-2C3D-4E5F-8A9B-0C1D2E3F4A5B">
-        <File Id="WhisperModelBin" Source="!(bindpath.modelsource)\ggml-large-v3-turbo.bin" />
+    <DirectoryRef Id="ModelsDir">
+      <Directory Id="WhisperModelsDir" Name="whisper">
+        <Directory Id="DefaultWhisperOnnxModelDir" Name="sherpa-onnx-whisper-base.en" />
+      </Directory>
+    </DirectoryRef>
+  </Fragment>
+
+  <Fragment>
+    <ComponentGroup Id="ModelComponents" Directory="DefaultWhisperOnnxModelDir">
+      <Component Id="WhisperOnnxModelComponent" Guid="B7E8F9A1-2C3D-4E5F-8A9B-0C1D2E3F4A5B">
+        <File Id="WhisperOnnxEncoder" Source="!(bindpath.modelsource)\whisper\sherpa-onnx-whisper-base.en\base.en-encoder.int8.onnx" />
+        <File Id="WhisperOnnxDecoder" Source="!(bindpath.modelsource)\whisper\sherpa-onnx-whisper-base.en\base.en-decoder.int8.onnx" />
+        <File Id="WhisperOnnxTokens" Source="!(bindpath.modelsource)\whisper\sherpa-onnx-whisper-base.en\base.en-tokens.txt" />
       </Component>
     </ComponentGroup>
   </Fragment>
