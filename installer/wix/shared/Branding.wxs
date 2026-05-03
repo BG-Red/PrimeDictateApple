@@ -7,6 +7,6 @@
     <Property Id="ARPCONTACT" Value="clientsupport@flowdevs.io" />
     <Property Id="ARPHELPLINK" Value="https://www.flowdevs.io" />
     <Property Id="ARPURLINFOABOUT" Value="https://www.flowdevs.io" />
-    <Property Id="ARPURLUPDATEINFO" Value="https://www.flowdevs.io" />
+    <Property Id="ARPURLUPDATEINFO" Value="https://github.com/CakeRepository/PrimeDictate/releases/latest" />
   </Fragment>
 </Wix>

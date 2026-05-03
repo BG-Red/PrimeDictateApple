@@ -136,6 +136,9 @@
                             <CheckBox Name="PlayAudioCuesCheckBox"
                                       Margin="0,10,0,0"
                                       Content="Play start and stop tones" />
+                            <CheckBox Name="CheckForUpdatesAutomaticallyCheckBox"
+                                      Margin="0,10,0,0"
+                                      Content="Check GitHub Releases for software updates automatically" />
                             <TextBlock Margin="0,8,0,0"
                                        Foreground="{StaticResource TextMutedBrush}"
                                        TextWrapping="Wrap"

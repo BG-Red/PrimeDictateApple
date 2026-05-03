@@ -54,6 +54,10 @@ internal sealed class AppSettings
 
     public bool PlayAudioCues { get; set; } = true;
 
+    public bool CheckForUpdatesAutomatically { get; set; } = true;
+
+    public DateTime? LastUpdateCheckUtc { get; set; }
+
     public int BaselineTypingSpeedWpm { get; set; } = DefaultBaselineTypingSpeedWpm;
 
     [JsonConverter(typeof(JsonStringEnumConverter))]
@@ -98,6 +102,8 @@ internal sealed class AppSettings
         SendEnterAfterCommit = false,
         ReturnToStartTargetOnCommit = false,
         PlayAudioCues = true,
+        CheckForUpdatesAutomatically = true,
+        LastUpdateCheckUtc = null,
         BaselineTypingSpeedWpm = DefaultBaselineTypingSpeedWpm,
         OverlayMode = OverlayMode.CompactMicrophone,
         IsOverlaySticky = false,

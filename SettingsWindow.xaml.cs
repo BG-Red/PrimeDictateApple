@@ -61,6 +61,7 @@ internal partial class SettingsWindow : Window
     private HotkeyGesture currentHistoryHotkey;
     private readonly bool isFirstRun;
     private readonly bool isOverlaySticky;
+    private readonly DateTime? lastUpdateCheckUtc;
     private readonly IReadOnlyList<BackendChoice> availableBackendChoices;
     private CancellationTokenSource? modelDownloadCts;
     private TranscriptionBackendKind currentBackend;
@@ -72,6 +73,7 @@ internal partial class SettingsWindow : Window
         InitializeComponent();
         this.isFirstRun = isFirstRun;
         this.isOverlaySticky = settings.IsOverlaySticky;
+        this.lastUpdateCheckUtc = settings.LastUpdateCheckUtc;
         this.currentDictationHotkey = settings.DictationHotkey;
         this.currentStopHotkey = settings.StopHotkey;
         this.currentHistoryHotkey = settings.HistoryHotkey;
@@ -95,6 +97,7 @@ internal partial class SettingsWindow : Window
         this.SendEnterAfterCommitCheckBox.IsChecked = settings.SendEnterAfterCommit;
         this.ReturnToStartTargetCheckBox.IsChecked = settings.ReturnToStartTargetOnCommit;
         this.PlayAudioCuesCheckBox.IsChecked = settings.PlayAudioCues;
+        this.CheckForUpdatesAutomaticallyCheckBox.IsChecked = settings.CheckForUpdatesAutomatically;
         this.OverlayModeComboBox.SelectedIndex = settings.OverlayMode == OverlayMode.FullPanel ? 1 : 0;
         this.EnableVoiceCommandsCheckBox.IsChecked = settings.EnableVoiceCommands;
         this.VoiceStopPhraseTextBox.Text = settings.VoiceStopPhrase;
@@ -1694,6 +1697,8 @@ internal partial class SettingsWindow : Window
             SendEnterAfterCommit = this.SendEnterAfterCommitCheckBox.IsChecked == true,
             ReturnToStartTargetOnCommit = this.ReturnToStartTargetCheckBox.IsChecked == true,
             PlayAudioCues = this.PlayAudioCuesCheckBox.IsChecked != false,
+            CheckForUpdatesAutomatically = this.CheckForUpdatesAutomaticallyCheckBox.IsChecked != false,
+            LastUpdateCheckUtc = this.lastUpdateCheckUtc,
             BaselineTypingSpeedWpm = baselineTypingSpeedWpm,
             OverlayMode = selectedOverlayMode == "Full"
                 ? OverlayMode.FullPanel

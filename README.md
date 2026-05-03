@@ -37,6 +37,7 @@
 - **Built-in pointer cue**: If Windows Mouse Sonar is enabled, PrimeDictate pulses it on recording/processing transitions by tapping Ctrl. It does not draw a custom pointer overlay or change the user's Windows setting.
 - **Custom audio earcons**: PrimeDictate can play its own short start/stop tones so you hear when recording begins and when capture hands off to transcription.
 - **Launch at login**: Installers enable automatic startup by default with a Windows Startup-folder shortcut so PrimeDictate is ready after a reboot. Silent MSI and Chocolatey installs can opt out, and Settings can switch between off, current-user startup, and all-users startup.
+- **Built-in updates**: The tray app can check GitHub Releases directly, prompt when a newer release is available, download the matching x64/ARM64 MSI, verify its `.sha256` sidecar, and hand off to Windows Installer.
 - **Audio**: Windows default capture device via NAudio **WASAPI** (`WasapiCapture`), resampled to **16 kHz, 16-bit, mono PCM** for local transcription engines.
 - **Mic isolation mode (best effort)**: Optional exclusive-capture setting can block other apps from the mic on supported devices; if exclusive capture fails, PrimeDictate automatically falls back to shared mode and continues dictation.
 - **Inference**: A shared transcription engine abstraction with Whisper, Parakeet, and Moonshine ONNX models through [sherpa-onnx](https://www.nuget.org/packages/org.k2fsa.sherpa.onnx), Whisper.net GGML for GPU/NPU-capable local Whisper runs, and experimental Qualcomm AI Hub Whisper packages for Snapdragon X NPU runs.
@@ -264,6 +265,7 @@ PrimeDictate now runs as a **WPF tray app** (no console window in normal use):
 - **Runtime model switching**: Changing the selected backend or model causes the next transcription session to reload the correct engine automatically.
 - **Preview settings**: Setup window includes the overlay style, silence auto-commit delay, optional coding-mode Enter key, PrimeDictate audio cues, and mic capture behavior.
 - **Impact dashboard**: Settings includes a local stats tab with productivity cards, a 14-day words chart, and milestone achievements.
+- **Built-in update checks**: After first-run setup, PrimeDictate checks GitHub Releases at most once per day when automatic checks are enabled. The tray menu also has **Check for updates** for a manual check.
 - **Installer continuity**: The online MSI keeps one product identity for clean upgrades.
 - **Installer finish launch**: The online MSI exposes **“Launch PrimeDictate when setup completes”** (checked by default), which starts the app after install.
 - **Launch at login**: MSI installs add an all-users Windows Startup shortcut by default. Use `LAUNCHATLOGIN=0` for silent MSI installs or Chocolatey `/NoLaunchAtLogin` when you do not want PrimeDictate to start when users sign in. The Settings window can move startup to the current user’s Startup folder or disable it later.
@@ -308,7 +310,7 @@ The app starts in the tray. On first launch, complete setup, then focus another 
 | Mechanism | Purpose |
 |-----------|---------|
 | `--enable-launch-at-login` / `--disable-launch-at-login` | Command line switches that add or remove `PrimeDictate.lnk` from the current-user or all-users Windows Startup folder. All-users changes request elevation when needed. |
-| User settings + first-run | Stored at `%LocalAppData%\PrimeDictate\settings.json` with `FirstRunCompleted`, launch-at-login scope, dictation/stop/history hotkeys, optional voice command phrases, selected backend, selected model id, resolved model path, optional exclusive mic capture toggle, overlay style, silence auto-commit delay, return-to-original-target toggle, audio cue toggle, overlay placement, coding-mode Enter toggle, and baseline typing speed for impact estimates. |
+| User settings + first-run | Stored at `%LocalAppData%\PrimeDictate\settings.json` with `FirstRunCompleted`, launch-at-login scope, dictation/stop/history hotkeys, optional voice command phrases, selected backend, selected model id, resolved model path, optional exclusive mic capture toggle, overlay style, silence auto-commit delay, return-to-original-target toggle, audio cue toggle, automatic update checks, overlay placement, coding-mode Enter toggle, and baseline typing speed for impact estimates. |
 | `PRIMEDICTATE_QNN_*` env vars | Maintainer and validation controls for the experimental Qualcomm QNN backend, including strict no-CPU-fallback mode, context caching, and optional QNN profiling output. |
 
 ![Dictation Settings](assets/settings_dictation.png)

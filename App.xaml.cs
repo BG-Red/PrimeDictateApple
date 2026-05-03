@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Drawing;
 using System.IO;
 using System.Windows;
@@ -24,6 +25,7 @@ public partial class App : System.Windows.Application
     private SettingsStore? settingsStore;
     private TranscriptionHistoryStore? historyStore;
     private DictationStatsStore? statsStore;
+    private GitHubUpdateService? updateService;
     private DictationStatsState? stats;
     private AppSettings? settings;
     private Task? hookTask;
@@ -31,11 +33,14 @@ public partial class App : System.Windows.Application
     private MainWindow? workspaceWindow;
     private HistoryWindow? historyWindow;
     private TranscriptionOverlayWindow? transcriptionOverlayWindow;
+    private Forms.ToolStripMenuItem? checkForUpdatesMenuItem;
     private readonly DictationWorkspaceViewModel workspaceViewModel = new();
     private readonly TranscriptionHistoryViewModel historyViewModel = new();
     private string overlayTranscript = string.Empty;
     private bool isRecording;
     private bool isProcessing;
+    private bool isCheckingForUpdates;
+    private bool isInstallingUpdate;
     private bool overlayExpandedFromCompact;
     private DateTime errorStateUntilUtc = DateTime.MinValue;
 
@@ -68,6 +73,7 @@ public partial class App : System.Windows.Application
         this.settingsStore = new SettingsStore();
         this.historyStore = new TranscriptionHistoryStore();
         this.statsStore = new DictationStatsStore();
+        this.updateService = new GitHubUpdateService();
         this.settings = this.settingsStore.LoadOrDefault();
         var settingsChanged = TranscriptionRuntimeSupport.NormalizeSettingsForCurrentMachine(this.settings);
         settingsChanged |= NormalizeShortcutSettings(this.settings);
@@ -125,6 +131,10 @@ public partial class App : System.Windows.Application
         if (!this.settings.FirstRunCompleted)
         {
             this.ShowSettingsWindow(isFirstRun: true);
+        }
+        else
+        {
+            this.QueueAutomaticUpdateCheck();
         }
     }
 
@@ -316,6 +326,9 @@ public partial class App : System.Windows.Application
 
         AppLog.EntryWritten -= this.OnAppLogEntryWritten;
 
+        this.updateService?.Dispose();
+        this.updateService = null;
+
         if (this.notifyIcon is not null)
         {
             this.notifyIcon.Visible = false;
@@ -351,6 +364,9 @@ public partial class App : System.Windows.Application
         menu.Items.Add("Open Workspace", null, (_, _) => this.ShowWorkspaceWindow());
         menu.Items.Add("Settings", null, (_, _) => this.ShowSettingsWindow(isFirstRun: false));
         menu.Items.Add("History", null, (_, _) => this.ShowHistoryWindow());
+        menu.Items.Add(new Forms.ToolStripSeparator());
+        this.checkForUpdatesMenuItem = new Forms.ToolStripMenuItem("Check for updates", null, async (_, _) => await this.CheckForUpdatesAsync(showUpToDateMessage: true));
+        menu.Items.Add(this.checkForUpdatesMenuItem);
         menu.Items.Add("Exit", null, (_, _) => this.Shutdown());
 
         var icon = new Forms.NotifyIcon
@@ -382,6 +398,208 @@ public partial class App : System.Windows.Application
     internal void ShowSettings() => this.ShowSettingsWindow(false);
 
     internal void ShowHistory() => this.ShowHistoryWindow();
+
+    private void QueueAutomaticUpdateCheck()
+    {
+        if (this.settings?.CheckForUpdatesAutomatically != true ||
+            this.settings.FirstRunCompleted != true)
+        {
+            return;
+        }
+
+        if (this.settings.LastUpdateCheckUtc is { } lastCheckUtc &&
+            DateTime.UtcNow - DateTime.SpecifyKind(lastCheckUtc, DateTimeKind.Utc) < TimeSpan.FromHours(24))
+        {
+            return;
+        }
+
+        _ = this.CheckForUpdatesAfterStartupAsync();
+    }
+
+    private async Task CheckForUpdatesAfterStartupAsync()
+    {
+        await Task.Delay(TimeSpan.FromSeconds(8)).ConfigureAwait(false);
+        await this.Dispatcher.InvokeAsync(() =>
+        {
+            _ = this.CheckForUpdatesAsync(showUpToDateMessage: false);
+        });
+    }
+
+    private async Task CheckForUpdatesAsync(bool showUpToDateMessage)
+    {
+        if (this.updateService is null || this.settings is null || this.settingsStore is null)
+        {
+            return;
+        }
+
+        if (this.isCheckingForUpdates || this.isInstallingUpdate)
+        {
+            if (showUpToDateMessage)
+            {
+                System.Windows.MessageBox.Show(
+                    "PrimeDictate is already checking for or installing an update.",
+                    "Update in progress",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+            }
+
+            return;
+        }
+
+        this.isCheckingForUpdates = true;
+        this.SetCheckForUpdatesMenuState("Checking for updates...", enabled: false);
+        AppLog.Info("Checking GitHub Releases for PrimeDictate updates...");
+
+        try
+        {
+            var update = await this.updateService.CheckForUpdateAsync(CancellationToken.None);
+            this.settings.LastUpdateCheckUtc = DateTime.UtcNow;
+            this.settingsStore.Save(this.settings);
+
+            if (update is null)
+            {
+                AppLog.Info($"PrimeDictate is up to date ({GitHubUpdateService.CurrentApplicationVersionText}).");
+                if (showUpToDateMessage)
+                {
+                    System.Windows.MessageBox.Show(
+                        $"PrimeDictate is up to date.\n\nInstalled version: {GitHubUpdateService.CurrentApplicationVersionText}",
+                        "No update available",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Information);
+                }
+
+                return;
+            }
+
+            AppLog.Info($"PrimeDictate {update.DisplayVersion} is available from GitHub Releases.");
+            await this.PromptForUpdateAsync(update);
+        }
+        catch (Exception ex)
+        {
+            var message = $"Update check failed: {ex.Message}";
+            if (showUpToDateMessage)
+            {
+                AppLog.Error(message);
+                System.Windows.MessageBox.Show(
+                    message,
+                    "Update check failed",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+            }
+            else
+            {
+                AppLog.Info(message);
+            }
+        }
+        finally
+        {
+            this.isCheckingForUpdates = false;
+            if (!this.isInstallingUpdate)
+            {
+                this.SetCheckForUpdatesMenuState("Check for updates", enabled: true);
+            }
+        }
+    }
+
+    private async Task PromptForUpdateAsync(AppUpdateInfo update)
+    {
+        var releaseDateText = update.PublishedAt is { } publishedAt
+            ? $"{Environment.NewLine}Published: {publishedAt.LocalDateTime:g}"
+            : string.Empty;
+        var message =
+            $"PrimeDictate {update.DisplayVersion} is available.{Environment.NewLine}{Environment.NewLine}" +
+            $"Installed version: {GitHubUpdateService.CurrentApplicationVersionText}{Environment.NewLine}" +
+            $"Installer: {update.InstallerAssetName}{releaseDateText}{Environment.NewLine}{Environment.NewLine}" +
+            "Download, verify, and start the MSI installer now? PrimeDictate will close before Windows Installer starts.";
+
+        var result = System.Windows.MessageBox.Show(
+            message,
+            "PrimeDictate update available",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Information);
+        if (result != MessageBoxResult.Yes)
+        {
+            AppLog.Info($"PrimeDictate {update.DisplayVersion} update deferred by the user.");
+            return;
+        }
+
+        await this.DownloadAndInstallUpdateAsync(update);
+    }
+
+    private async Task DownloadAndInstallUpdateAsync(AppUpdateInfo update)
+    {
+        if (this.updateService is null)
+        {
+            return;
+        }
+
+        this.isInstallingUpdate = true;
+        this.SetCheckForUpdatesMenuState("Downloading update...", enabled: false);
+        this.notifyIcon?.ShowBalloonTip(
+            5000,
+            "PrimeDictate update",
+            $"Downloading {update.InstallerAssetName}...",
+            Forms.ToolTipIcon.Info);
+
+        var progress = new Progress<UpdateDownloadProgress>(downloadProgress =>
+        {
+            var text = downloadProgress.Percent is { } percent
+                ? $"Downloading update... {percent}%"
+                : "Downloading update...";
+            this.SetCheckForUpdatesMenuState(text, enabled: false);
+        });
+
+        try
+        {
+            var installerPath = await this.updateService.DownloadAndVerifyInstallerAsync(update, progress, CancellationToken.None);
+            AppLog.Info($"Downloaded and verified PrimeDictate update installer: {installerPath}");
+            GitHubUpdateService.StartInstaller(installerPath, this.settings);
+            AppLog.Info("PrimeDictate update installer handoff started.");
+            this.notifyIcon?.ShowBalloonTip(
+                3000,
+                "PrimeDictate update",
+                "PrimeDictate will close, then Windows Installer will start.",
+                Forms.ToolTipIcon.Info);
+            this.Shutdown();
+        }
+        catch (Win32Exception ex) when (ex.NativeErrorCode == 1223)
+        {
+            AppLog.Info("PrimeDictate update canceled before Windows Installer started.");
+            System.Windows.MessageBox.Show(
+                "The update was canceled before Windows Installer started.",
+                "Update canceled",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error($"Update installation failed: {ex.Message}");
+            System.Windows.MessageBox.Show(
+                $"The update could not be installed: {ex.Message}",
+                "Update failed",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+        }
+        finally
+        {
+            this.isInstallingUpdate = false;
+            if (!this.isCheckingForUpdates)
+            {
+                this.SetCheckForUpdatesMenuState("Check for updates", enabled: true);
+            }
+        }
+    }
+
+    private void SetCheckForUpdatesMenuState(string text, bool enabled)
+    {
+        if (this.checkForUpdatesMenuItem is null)
+        {
+            return;
+        }
+
+        this.checkForUpdatesMenuItem.Text = text;
+        this.checkForUpdatesMenuItem.Enabled = enabled;
+    }
 
     private Task ShowHistoryFromHotkeyAsync()
     {
@@ -438,7 +656,11 @@ public partial class App : System.Windows.Application
         }
 
         this.overlayExpandedFromCompact = false;
+        var shouldQueueFirstSavedUpdateCheck = this.settings?.FirstRunCompleted != true &&
+            newSettings.FirstRunCompleted &&
+            newSettings.CheckForUpdatesAutomatically;
         NormalizeShortcutSettings(newSettings);
+        newSettings.LastUpdateCheckUtc = this.settings?.LastUpdateCheckUtc ?? newSettings.LastUpdateCheckUtc;
         this.settings = newSettings;
         this.settingsStore.Save(newSettings);
         this.UpdateRuntimeStatusUi();
@@ -467,6 +689,11 @@ public partial class App : System.Windows.Application
             newSettings.VoiceShellCommands ?? new List<VoiceShellCommand>(),
             newSettings.TranscriptReplacements ?? new List<TranscriptReplacementRule>());
         this.UpdateTranscriptionOverlay();
+
+        if (shouldQueueFirstSavedUpdateCheck)
+        {
+            this.QueueAutomaticUpdateCheck();
+        }
     }
 
     private void OnRecordingStateChanged(bool isRecording)
