@@ -36,6 +36,8 @@ internal sealed class GitHubUpdateService : IDisposable
 {
     private const string Owner = "CakeRepository";
     private const string Repository = "PrimeDictate";
+    private const int InstallerFileRetryCount = 40;
+    private static readonly TimeSpan InstallerFileRetryDelay = TimeSpan.FromMilliseconds(750);
     private static readonly Uri LatestReleaseApiUrl = new($"https://api.github.com/repos/{Owner}/{Repository}/releases/latest");
     private readonly HttpClient httpClient;
 
@@ -236,6 +238,8 @@ internal sealed class GitHubUpdateService : IDisposable
             await MoveInstallerFileWithRetryAsync(tempPath, targetPath, cancellationToken).ConfigureAwait(false);
         }
 
+        await WaitForInstallerReadableAsync(targetPath, cancellationToken).ConfigureAwait(false);
+
         return targetPath;
     }
 
@@ -288,6 +292,27 @@ internal sealed class GitHubUpdateService : IDisposable
         } catch {
         }
 
+        $deadline = (Get-Date).AddSeconds(90)
+        while ($true) {
+            try {
+                $probe = [System.IO.File]::Open($InstallerPath, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::Read)
+                $probe.Dispose()
+                break
+            } catch [System.IO.IOException] {
+                if ((Get-Date) -ge $deadline) {
+                    throw "Installer file remained locked and could not be opened for read access: $InstallerPath"
+                }
+
+                Start-Sleep -Milliseconds 750
+            } catch [System.UnauthorizedAccessException] {
+                if ((Get-Date) -ge $deadline) {
+                    throw "Installer file could not be accessed before timeout: $InstallerPath"
+                }
+
+                Start-Sleep -Milliseconds 750
+            }
+        }
+
         $quotedInstallerPath = '"' + $InstallerPath.Replace('"', '\"') + '"'
         $installerArguments = "/i $quotedInstallerPath $LaunchAtLoginProperty"
         $msiexecPath = Join-Path $env:SystemRoot 'System32\msiexec.exe'
@@ -306,17 +331,58 @@ internal sealed class GitHubUpdateService : IDisposable
 
     private static async Task MoveInstallerFileWithRetryAsync(string sourcePath, string targetPath, CancellationToken cancellationToken)
     {
-        try
+        Exception? lastException = null;
+        for (var attempt = 1; attempt <= InstallerFileRetryCount; attempt++)
         {
-            File.Move(sourcePath, targetPath, overwrite: false);
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                File.Move(sourcePath, targetPath, overwrite: false);
+                return;
+            }
+            catch (IOException retryEx) when (attempt < InstallerFileRetryCount)
+            {
+                lastException = retryEx;
+                AppLog.Info($"Installer file move attempt {attempt} failed ('{retryEx.Message}'); retrying.");
+                await Task.Delay(InstallerFileRetryDelay, cancellationToken).ConfigureAwait(false);
+            }
+            catch (UnauthorizedAccessException retryEx) when (attempt < InstallerFileRetryCount)
+            {
+                lastException = retryEx;
+                AppLog.Info($"Installer file move attempt {attempt} was denied ('{retryEx.Message}'); retrying.");
+                await Task.Delay(InstallerFileRetryDelay, cancellationToken).ConfigureAwait(false);
+            }
         }
-        catch (IOException retryEx)
+
+        throw new IOException($"Unable to move installer to '{targetPath}' after {InstallerFileRetryCount} attempts.", lastException);
+    }
+
+    private static async Task WaitForInstallerReadableAsync(string installerPath, CancellationToken cancellationToken)
+    {
+        Exception? lastException = null;
+        for (var attempt = 1; attempt <= InstallerFileRetryCount; attempt++)
         {
-            // A transient lock (e.g. AV scanning a freshly downloaded file) may cause this; wait and try once more.
-            AppLog.Info($"Installer file move failed ('{retryEx.Message}'); retrying after 2s.");
-            await Task.Delay(2000, cancellationToken).ConfigureAwait(false);
-            File.Move(sourcePath, targetPath, overwrite: false);
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                await using var probe = new FileStream(installerPath, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, useAsync: true);
+                return;
+            }
+            catch (IOException retryEx) when (attempt < InstallerFileRetryCount)
+            {
+                lastException = retryEx;
+                AppLog.Info($"Installer readiness check attempt {attempt} failed ('{retryEx.Message}'); waiting.");
+                await Task.Delay(InstallerFileRetryDelay, cancellationToken).ConfigureAwait(false);
+            }
+            catch (UnauthorizedAccessException retryEx) when (attempt < InstallerFileRetryCount)
+            {
+                lastException = retryEx;
+                AppLog.Info($"Installer readiness check attempt {attempt} was denied ('{retryEx.Message}'); waiting.");
+                await Task.Delay(InstallerFileRetryDelay, cancellationToken).ConfigureAwait(false);
+            }
         }
+
+        throw new IOException($"Installer '{installerPath}' remained locked after {InstallerFileRetryCount} attempts.", lastException);
     }
 
     private static void TryDeleteFile(string path)
