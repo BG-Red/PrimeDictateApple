@@ -222,10 +222,18 @@ internal sealed class GitHubUpdateService : IDisposable
         {
             File.Move(tempPath, targetPath, overwrite: !useUniqueInstallerPath);
         }
-        catch (IOException) when (!useUniqueInstallerPath)
+        catch (IOException ex) when (!useUniqueInstallerPath)
         {
+            // Canonical cached path is locked (e.g. Windows Installer or AV has it open); fall back to a unique path.
+            AppLog.Info($"Could not overwrite cached installer ('{ex.Message}'); retrying with unique path.");
             targetPath = GetUniqueInstallerPath(updateDirectory, update.InstallerAssetName);
-            File.Move(tempPath, targetPath, overwrite: false);
+            await MoveInstallerFileWithRetryAsync(tempPath, targetPath, cancellationToken).ConfigureAwait(false);
+        }
+        catch (IOException ex) when (useUniqueInstallerPath)
+        {
+            // AV may be briefly holding the temp file immediately after download; wait and retry.
+            AppLog.Info($"Could not move installer to unique path ('{ex.Message}'); retrying after short delay.");
+            await MoveInstallerFileWithRetryAsync(tempPath, targetPath, cancellationToken).ConfigureAwait(false);
         }
 
         return targetPath;
@@ -282,7 +290,8 @@ internal sealed class GitHubUpdateService : IDisposable
 
         $quotedInstallerPath = '"' + $InstallerPath.Replace('"', '\"') + '"'
         $installerArguments = "/i $quotedInstallerPath $LaunchAtLoginProperty"
-        Start-Process -FilePath 'msiexec.exe' -ArgumentList $installerArguments -Verb RunAs
+        $msiexecPath = Join-Path $env:SystemRoot 'System32\msiexec.exe'
+        Start-Process -FilePath $msiexecPath -ArgumentList $installerArguments -Verb RunAs
 
         try {
             Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue
@@ -294,6 +303,21 @@ internal sealed class GitHubUpdateService : IDisposable
         Path.Combine(
             updateDirectory,
             $"{Path.GetFileNameWithoutExtension(installerAssetName)}.{DateTime.UtcNow:yyyyMMddHHmmss}.{Guid.NewGuid():N}.msi");
+
+    private static async Task MoveInstallerFileWithRetryAsync(string sourcePath, string targetPath, CancellationToken cancellationToken)
+    {
+        try
+        {
+            File.Move(sourcePath, targetPath, overwrite: false);
+        }
+        catch (IOException retryEx)
+        {
+            // A transient lock (e.g. AV scanning a freshly downloaded file) may cause this; wait and try once more.
+            AppLog.Info($"Installer file move failed ('{retryEx.Message}'); retrying after 2s.");
+            await Task.Delay(2000, cancellationToken).ConfigureAwait(false);
+            File.Move(sourcePath, targetPath, overwrite: false);
+        }
+    }
 
     private static void TryDeleteFile(string path)
     {
