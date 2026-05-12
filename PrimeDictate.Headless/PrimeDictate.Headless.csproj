@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>PrimeDictate</RootNamespace>
+    <AssemblyName>PrimeDictate.Headless</AssemblyName>
+    <Product>PrimeDictate Headless</Product>
+    <AssemblyTitle>PrimeDictate Headless</AssemblyTitle>
+    <Description>Cross-platform terminal dictation runner for PrimeDictate.</Description>
+    <Authors>FlowDevs.io</Authors>
+    <Company>FlowDevs.io</Company>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\ModelStorage.cs" Link="Shared\ModelStorage.cs" />
+    <Compile Include="..\WhisperModelCatalog.cs" Link="Shared\WhisperModelCatalog.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="org.k2fsa.sherpa.onnx" Version="1.13.0" />
+    <PackageReference Include="SharpHook" Version="7.1.1" />
+  </ItemGroup>
+
+</Project>

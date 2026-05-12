@@ -39,6 +39,7 @@
 
   <ItemGroup>
     <Compile Remove="artifacts\**\*.cs" />
+    <Compile Remove="PrimeDictate.Headless\**\*.cs" />
     <Content Include="installer\wix\assets\PrimeDictate.ico">
       <Link>PrimeDictate.ico</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
