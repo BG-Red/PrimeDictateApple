@@ -11,7 +11,7 @@ internal sealed record ForegroundInputTarget(
     IntPtr FocusedWindowHandle,
     uint ProcessId,
     string? Title,
-    string? ProcessName)
+    string? ProcessName) : IForegroundInputTarget
 {
     public string DisplayName =>
         string.IsNullOrWhiteSpace(this.Title)
@@ -106,6 +106,12 @@ internal sealed record ForegroundInputTarget(
             return null;
         }
     }
+}
+
+internal sealed class WindowsForegroundInputTargetProvider : IForegroundInputTargetProvider
+{
+    public IForegroundInputTarget? Capture() =>
+        OperatingSystem.IsWindows() ? ForegroundInputTarget.Capture() : null;
 }
 
 internal static class WindowsMousePointerIndicator

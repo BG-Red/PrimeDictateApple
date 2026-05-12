@@ -16,7 +16,7 @@ internal sealed class OllamaPostProcessor
         string endpoint, 
         string modelName, 
         OllamaMode mode,
-        ForegroundInputTarget? target, 
+        IForegroundInputTarget? target,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(transcript))

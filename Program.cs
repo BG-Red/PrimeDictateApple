@@ -131,8 +131,9 @@ internal sealed class DictationController : IAsyncDisposable
     private const int MinSpeechLevelEventsBeforeAutoCommit = 3;
 
     private readonly SemaphoreSlim toggleGate = new(initialCount: 1, maxCount: 1);
-    private readonly DefaultMicrophoneRecorder recorder = new();
-    private readonly WhisperTextInjectionPipeline textInjectionPipeline = new();
+    private readonly IAudioRecorder recorder;
+    private readonly WhisperTextInjectionPipeline textInjectionPipeline;
+    private readonly IForegroundInputTargetProvider foregroundInputTargets;
     private readonly object configSync = new();
     private bool exclusiveMicAccessWhileDictating;
     private string? selectedInputDeviceId;
@@ -149,7 +150,7 @@ internal sealed class DictationController : IAsyncDisposable
     private CancellationTokenSource? livePreviewCts;
     private Task? livePreviewTask;
     private Guid? activeThreadId;
-    private ForegroundInputTarget? activeInputTarget;
+    private IForegroundInputTarget? activeInputTarget;
     private int autoCommitRequested;
     private int emergencyStopRequested;
     private int voiceCommitRequested;
@@ -194,8 +195,14 @@ internal sealed class DictationController : IAsyncDisposable
         string voiceStopPhrase = AppSettings.DefaultVoiceStopPhrase,
         string voiceHistoryPhrase = AppSettings.DefaultVoiceHistoryPhrase,
         IReadOnlyList<VoiceShellCommand>? voiceShellCommands = null,
-        IReadOnlyList<TranscriptReplacementRule>? transcriptReplacements = null)
+        IReadOnlyList<TranscriptReplacementRule>? transcriptReplacements = null,
+        IAudioRecorder? recorder = null,
+        IForegroundInputTargetProvider? foregroundInputTargetProvider = null,
+        ITextInjector? textInjector = null)
     {
+        this.recorder = recorder ?? new DefaultMicrophoneRecorder();
+        this.foregroundInputTargets = foregroundInputTargetProvider ?? new WindowsForegroundInputTargetProvider();
+        this.textInjectionPipeline = new WhisperTextInjectionPipeline(textInjector);
         this.exclusiveMicAccessWhileDictating = exclusiveMicAccessWhileDictating;
         this.selectedInputDeviceId = string.IsNullOrWhiteSpace(selectedInputDeviceId) ? null : selectedInputDeviceId;
         this.inputGainMultiplier = NormalizeInputGain(inputGainMultiplier);
@@ -224,10 +231,10 @@ internal sealed class DictationController : IAsyncDisposable
 
     public bool IsRecording => this.recorder.IsRecording;
 
-    public string ActiveMicAccessModeLabel => this.recorder.ActiveShareMode switch
+    public string ActiveMicAccessModeLabel => this.recorder.ActiveAccessMode switch
     {
-        AudioClientShareMode.Exclusive => "Exclusive",
-        AudioClientShareMode.Shared => "Shared",
+        MicrophoneAccessMode.Exclusive => "Exclusive",
+        MicrophoneAccessMode.Shared => "Shared",
         _ => "N/A"
     };
 
@@ -300,7 +307,7 @@ internal sealed class DictationController : IAsyncDisposable
 
                 var threadId = Guid.NewGuid();
                 this.activeThreadId = threadId;
-                this.activeInputTarget = ForegroundInputTarget.Capture();
+                this.activeInputTarget = this.foregroundInputTargets.Capture();
                 Interlocked.Exchange(ref this.autoCommitRequested, 0);
                 Interlocked.Exchange(ref this.emergencyStopRequested, 0);
                 Interlocked.Exchange(ref this.voiceCommitRequested, 0);
@@ -1355,7 +1362,7 @@ internal sealed class DictationController : IAsyncDisposable
 
 }
 
-internal sealed class DefaultMicrophoneRecorder : IDisposable
+internal sealed class DefaultMicrophoneRecorder : IAudioRecorder
 {
     private const int TargetSampleRate = 16_000;
     private const int TargetBitsPerSample = 16;
@@ -1389,6 +1396,22 @@ internal sealed class DefaultMicrophoneRecorder : IDisposable
             lock (this.syncRoot)
             {
                 return this.activeShareMode;
+            }
+        }
+    }
+
+    public MicrophoneAccessMode? ActiveAccessMode
+    {
+        get
+        {
+            lock (this.syncRoot)
+            {
+                return this.activeShareMode switch
+                {
+                    AudioClientShareMode.Exclusive => MicrophoneAccessMode.Exclusive,
+                    AudioClientShareMode.Shared => MicrophoneAccessMode.Shared,
+                    _ => null
+                };
             }
         }
     }

@@ -11,7 +11,12 @@ namespace PrimeDictate;
 internal sealed class WhisperTextInjectionPipeline
 {
     private readonly TranscriptionEngineHost transcriptionEngines = new();
-    private readonly EventSimulator eventSimulator = new();
+    private readonly ITextInjector textInjector;
+
+    public WhisperTextInjectionPipeline(ITextInjector? textInjector = null)
+    {
+        this.textInjector = textInjector ?? new SharpHookTextInjector();
+    }
 
     public string ConfigurationSummary => this.transcriptionEngines.ConfigurationSummary;
 
@@ -76,30 +81,42 @@ internal sealed class WhisperTextInjectionPipeline
             return;
         }
 
+        this.textInjector.InjectText(target);
+    }
+
+    public void SendEnterToTarget() => this.textInjector.SendEnter();
+
+    public async ValueTask DisposeAsync()
+    {
+        await this.transcriptionEngines.DisposeAsync().ConfigureAwait(false);
+    }
+}
+
+internal sealed class SharpHookTextInjector : ITextInjector
+{
+    private readonly EventSimulator eventSimulator = new();
+
+    public void InjectText(string text)
+    {
         if (OperatingSystem.IsWindows())
         {
-            WindowsUnicodeInput.SendText(target);
+            WindowsUnicodeInput.SendText(text);
             return;
         }
 
-        var textResult = this.eventSimulator.SimulateTextEntry(target);
+        var textResult = this.eventSimulator.SimulateTextEntry(text);
         if (textResult != UioHookResult.Success)
         {
             throw new InvalidOperationException($"Text injection failed with status {textResult}.");
         }
     }
 
-    public void SendEnterToTarget()
+    public void SendEnter()
     {
         var keyResult = this.eventSimulator.SimulateKeyStroke(new[] { KeyCode.VcEnter });
         if (keyResult != UioHookResult.Success)
         {
             throw new InvalidOperationException($"Enter key simulation failed with status {keyResult}.");
         }
-    }
-
-    public async ValueTask DisposeAsync()
-    {
-        await this.transcriptionEngines.DisposeAsync().ConfigureAwait(false);
     }
 }
